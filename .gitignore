@@ -1,2 +1,17 @@
-.git
-.planning/
+# Build results
+result
+result-*
+target/
+
+# Nix & Direnv
+.direnv/
+
+# Editor & OS artifacts
+.DS_Store
+*.swp
+*~
+
+# Local inventories & planning docs (untracked)
+docs/plans/
+*.local.nix
+boxes.local.nix
