@@ -1,4 +1,8 @@
-{ inputs }:
+{
+  inputs,
+  environmentsDir ? ../environments,
+  servicesDir ? ../services,
+}:
 
 let
   inherit (inputs.nixpkgs) lib;
@@ -13,13 +17,14 @@ let
     ../system/baseline.nix
   ];
 
-  environmentsDir = ../environments;
-  servicesDir = ../services;
-
   # Discover all environment folders (e.g. environments/prod, environments/stag)
-  environmentNames = builtins.attrNames (
-    lib.filterAttrs (_name: type: type == "directory") (builtins.readDir environmentsDir)
-  );
+  environmentNames =
+    if builtins.pathExists environmentsDir then
+      builtins.attrNames (
+        lib.filterAttrs (_name: type: type == "directory") (builtins.readDir environmentsDir)
+      )
+    else
+      [ ];
 
   # Load fleet declaration and environment variables for one environment
   loadEnvironment = envName: {
