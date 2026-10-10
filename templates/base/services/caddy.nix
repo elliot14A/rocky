@@ -1,8 +1,5 @@
 {
-  lib,
   fleet,
-  environment,
-  hostName,
   ...
 }:
 

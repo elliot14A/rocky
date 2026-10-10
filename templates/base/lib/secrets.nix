@@ -13,7 +13,9 @@ let
 
   hostsRunning =
     services:
-    builtins.filter (host: builtins.any (s: builtins.hasAttr s (servicesOn host)) services) allHostNames;
+    builtins.filter (
+      host: builtins.any (s: builtins.hasAttr s (servicesOn host)) services
+    ) allHostNames;
 
   # A host gets an SSH key only after nixos-anywhere has installed it. Until
   # then it is not an age recipient: secrets stay operator-only, and a later

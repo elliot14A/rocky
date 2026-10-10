@@ -75,7 +75,6 @@ let
         ]
         ++ baseModules
         ++ [
-          (../providers + "/${hostConfig.provider}.nix")
           (environmentsDir + "/${env.name}/hosts/${hostName}")
         ]
         ++ serviceModules;
