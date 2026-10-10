@@ -47,12 +47,12 @@
               deploy-rs.packages.${system}.deploy-rs
               agenix.packages.${system}.default
               pkgs.nixos-anywhere
-              pkgs.nixfmt-rfc-style
+              pkgs.nixfmt
             ];
           };
         }
       );
 
-      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-rfc-style);
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt);
     };
 }
