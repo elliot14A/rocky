@@ -1,11 +1,12 @@
 use clap::Parser;
-use rocky::Result;
 use tracing_subscriber::EnvFilter;
 
-#[derive(Debug, Parser)]
+use rocky::Result;
+
+#[derive(Parser, Debug)]
 #[command(name = "rocky", version, about = "NixOS fleet deployment tool")]
 pub struct Cli {
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub verbose: bool,
 }
 
@@ -16,6 +17,5 @@ async fn main() -> Result<()> {
         .init();
 
     let _cli = Cli::parse();
-
     Ok(())
 }
