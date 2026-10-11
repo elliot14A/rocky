@@ -8,10 +8,19 @@ Rocky is a minimal deployment tool and CLI for managing NixOS fleets without clu
 2. **Plain Language**: All documentation, code comments, and commit messages must use plain, direct English. Avoid AI-generated filler words and corporate jargon. Do not use em dashes.
 3. **No Dynamic Dispatch**: Avoid `dyn Trait`, `Arc<dyn Trait>`, and unnecessary trait abstractions. Use concrete structs, modules, and static functions directly, following the patterns in `gaur`.
 4. **Typed Error Channels**: Never use `unwrap()` or `expect()` in production or library code. All domain and system errors must be explicitly typed using `snafu`.
-5. **Pure Domain vs System I/O**:
-   - `src/fleet/`: Pure data calculations and validation. Zero I/O, zero network, zero filesystem access. Synchronous only.
-   - `src/nixos/` and `src/network/`: System runners executing external tools (`nix`, `ssh`, `agenix`, `nixos-anywhere`, `tailscale`).
-   - `src/commands/`: CLI command execution handlers (one file per action: `new.rs`, `up.rs`, `status.rs`).
+5. **Action-Based Entity Layout**:
+   - Every file contains only code related to its specific action (`<entity>/<action>.rs`).
+   - No generic `utils/` folder. Filesystem logic lives in `src/fs/`, process execution lives in `src/process/`, and Nix tooling lives in `src/nix/`.
+   - Domain scaffolding engine lives in `src/templates/`:
+     - `src/templates/fetch.rs`
+     - `src/templates/env/create.rs`
+     - `src/templates/host/create.rs`
+     - `src/templates/service/create.rs`
+   - CLI command files live in `src/commands/` and are thin adapters:
+     - `src/commands/init.rs`
+     - `src/commands/new/env.rs`
+     - `src/commands/new/host.rs`
+     - `src/commands/new/service.rs`
 
 ## Verification Before Claims
 
