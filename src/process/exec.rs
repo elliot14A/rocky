@@ -35,15 +35,19 @@ where
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let display_cmd = format!(
-            "{} {}",
-            cmd,
-            args_vec
-                .iter()
-                .map(|a| a.to_string_lossy())
-                .collect::<Vec<_>>()
-                .join(" ")
-        );
+        let display_cmd = if args_vec.is_empty() {
+            cmd.to_string()
+        } else {
+            format!(
+                "{} {}",
+                cmd,
+                args_vec
+                    .iter()
+                    .map(|a| a.to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+        };
 
         return match output.status.code() {
             Some(status) => CommandExecutionSnafu {

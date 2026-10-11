@@ -8,12 +8,16 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let files_vec: Vec<_> = files.into_iter().collect();
-    if files_vec.is_empty() {
+    let files: Vec<_> = files
+        .into_iter()
+        .map(|s| s.as_ref().to_os_string())
+        .collect();
+
+    if files.is_empty() {
         return Ok(());
     }
 
-    if let Err(err) = process::exec("nixfmt", files_vec, None).await {
+    if let Err(err) = process::exec("nixfmt", &files, None).await {
         tracing::warn!(%err, "nixfmt was not found or failed; skipped formatting");
     }
 

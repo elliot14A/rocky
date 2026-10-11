@@ -1,7 +1,7 @@
-use clap::Parser;
-use tracing_subscriber::EnvFilter;
+use std::process::ExitCode;
 
-use rocky::Result;
+use clap::Parser;
+use rocky::process::log;
 
 #[derive(Parser, Debug)]
 #[command(name = "rocky", version, about = "NixOS fleet deployment tool")]
@@ -11,11 +11,8 @@ pub struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .init();
-
-    let _cli = Cli::parse();
-    Ok(())
+async fn main() -> ExitCode {
+    let cli = Cli::parse();
+    log::init(cli.verbose);
+    ExitCode::SUCCESS
 }

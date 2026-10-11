@@ -17,10 +17,10 @@ pub enum RockyError {
         source: std::io::Error,
     },
 
-    #[snafu(display("Path '{}' is not a directory", path.display()))]
+    #[snafu(display("'{}' is not a directory", path.display()))]
     NotADirectory { path: PathBuf },
 
-    #[snafu(display("Target directory '{}' is not empty", path.display()))]
+    #[snafu(display("Directory '{}' is not empty", path.display()))]
     TargetNotEmpty { path: PathBuf },
 
     #[snafu(display("Failed to execute process '{command}': {source}"))]
@@ -39,19 +39,25 @@ pub enum RockyError {
     #[snafu(display("Command '{command}' was terminated by signal"))]
     CommandSignaled { command: String },
 
-    #[snafu(display("{kind} '{name}' already exists at {}", path.display()))]
+    #[snafu(display("{kind} '{name}' already exists"))]
     AlreadyExists {
         kind: &'static str,
         name: String,
         path: PathBuf,
     },
 
-    #[snafu(display("{kind} '{name}' not found at {}", path.display()))]
+    #[snafu(display("{kind} '{name}' not found"))]
     NotFound {
         kind: &'static str,
         name: String,
         path: PathBuf,
     },
+
+    #[snafu(display("Invalid {kind} '{name}'"))]
+    InvalidName { kind: &'static str, name: String },
+
+    #[snafu(display("Insecure path '{}'", path.display()))]
+    InsecurePath { path: PathBuf, reason: String },
 }
 
 pub type Result<T, E = RockyError> = std::result::Result<T, E>;
@@ -93,10 +99,7 @@ mod tests {
             name: "prod".to_string(),
             path: PathBuf::from("environments/prod"),
         };
-        assert_eq!(
-            err.to_string(),
-            "Environment 'prod' already exists at environments/prod"
-        );
+        assert_eq!(err.to_string(), "Environment 'prod' already exists");
     }
 
     #[test]
@@ -106,10 +109,7 @@ mod tests {
             name: "aws".to_string(),
             path: PathBuf::from("templates/providers/aws"),
         };
-        assert_eq!(
-            err.to_string(),
-            "Provider 'aws' not found at templates/providers/aws"
-        );
+        assert_eq!(err.to_string(), "Provider 'aws' not found");
     }
 
     #[test]
@@ -117,6 +117,24 @@ mod tests {
         let err = RockyError::TargetNotEmpty {
             path: PathBuf::from("/var/test"),
         };
-        assert_eq!(err.to_string(), "Target directory '/var/test' is not empty");
+        assert_eq!(err.to_string(), "Directory '/var/test' is not empty");
+    }
+
+    #[test]
+    fn test_invalid_name_display() {
+        let err = RockyError::InvalidName {
+            kind: "Template",
+            name: "../evil".to_string(),
+        };
+        assert_eq!(err.to_string(), "Invalid Template '../evil'");
+    }
+
+    #[test]
+    fn test_insecure_path_display() {
+        let err = RockyError::InsecurePath {
+            path: PathBuf::from("/etc/passwd"),
+            reason: "symlink escapes source directory".to_string(),
+        };
+        assert_eq!(err.to_string(), "Insecure path '/etc/passwd'");
     }
 }
