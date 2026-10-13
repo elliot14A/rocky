@@ -1,5 +1,6 @@
-pub mod fetch;
+mod fetch;
+pub mod host;
 
-pub const REPO: &str = "https://github.com/elliot14A/rocky.git";
+pub(crate) const REPO: &str = "https://github.com/elliot14A/rocky.git";
 
-pub use fetch::fetch;
+pub use fetch::{fetch_provider, fetch_template};
