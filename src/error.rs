@@ -41,23 +41,46 @@ pub enum RockyError {
 
     #[snafu(display("{kind} '{name}' already exists"))]
     AlreadyExists {
-        kind: &'static str,
+        kind: Kind,
         name: String,
         path: PathBuf,
     },
 
     #[snafu(display("{kind} '{name}' not found"))]
     NotFound {
-        kind: &'static str,
+        kind: Kind,
         name: String,
         path: PathBuf,
     },
 
     #[snafu(display("Invalid {kind} '{name}'"))]
-    InvalidName { kind: &'static str, name: String },
+    InvalidName { kind: Kind, name: String },
 
     #[snafu(display("Insecure path '{}'", path.display()))]
     InsecurePath { path: PathBuf, reason: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Fleet,
+    Template,
+    Provider,
+    Environment,
+    Host,
+    Service,
+}
+
+impl std::fmt::Display for Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Fleet => write!(f, "Fleet"),
+            Self::Template => write!(f, "Template"),
+            Self::Provider => write!(f, "Provider"),
+            Self::Environment => write!(f, "Environment"),
+            Self::Host => write!(f, "Host"),
+            Self::Service => write!(f, "Service"),
+        }
+    }
 }
 
 pub type Result<T, E = RockyError> = std::result::Result<T, E>;
@@ -95,7 +118,7 @@ mod tests {
     #[test]
     fn test_already_exists_display() {
         let err = RockyError::AlreadyExists {
-            kind: "Environment",
+            kind: Kind::Environment,
             name: "prod".to_string(),
             path: PathBuf::from("environments/prod"),
         };
@@ -105,7 +128,7 @@ mod tests {
     #[test]
     fn test_not_found_display() {
         let err = RockyError::NotFound {
-            kind: "Provider",
+            kind: Kind::Provider,
             name: "aws".to_string(),
             path: PathBuf::from("templates/providers/aws"),
         };
@@ -123,7 +146,7 @@ mod tests {
     #[test]
     fn test_invalid_name_display() {
         let err = RockyError::InvalidName {
-            kind: "Template",
+            kind: Kind::Template,
             name: "../evil".to_string(),
         };
         assert_eq!(err.to_string(), "Invalid Template '../evil'");

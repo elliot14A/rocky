@@ -1,4 +1,4 @@
-use crate::error::{InvalidNameSnafu, Result};
+use crate::error::{InvalidNameSnafu, Kind, Result};
 
 pub fn is_valid_name(name: &str) -> bool {
     !name.is_empty()
@@ -8,16 +8,14 @@ pub fn is_valid_name(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
-pub fn validate_name(kind: &'static str, name: &str) -> Result<()> {
-    if is_valid_name(name) {
-        Ok(())
-    } else {
-        InvalidNameSnafu {
+pub fn validate_name(kind: Kind, name: &str) -> Result<()> {
+    is_valid_name(name)
+        .then_some(())
+        .ok_or_else(|| InvalidNameSnafu {
             kind,
             name: name.to_string(),
-        }
-        .fail()
-    }
+        })
+        .map_err(|e| e.build())
 }
 
 #[cfg(test)]
@@ -29,7 +27,7 @@ mod tests {
         assert!(is_valid_name("base"));
         assert!(is_valid_name("prod-1"));
         assert!(is_valid_name("web_server"));
-        assert!(validate_name("Template", "base").is_ok());
+        assert!(validate_name(Kind::Template, "base").is_ok());
     }
 
     #[test]
@@ -40,6 +38,6 @@ mod tests {
         assert!(!is_valid_name("-flag"));
         assert!(!is_valid_name("path/to/thing"));
         assert!(!is_valid_name("name with spaces"));
-        assert!(validate_name("Template", "../evil").is_err());
+        assert!(validate_name(Kind::Template, "../evil").is_err());
     }
 }

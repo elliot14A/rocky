@@ -4,20 +4,24 @@ use snafu::ResultExt;
 use tempfile::tempdir;
 
 use super::REPO;
-use crate::error::{IoSnafu, NotFoundSnafu, Result, TargetNotEmptySnafu};
+use crate::error::{IoSnafu, Kind, NotFoundSnafu, Result, TargetNotEmptySnafu};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix, process};
 
-pub async fn fetch(template: &str, target: &Path, force: bool) -> Result<()> {
-    validate_name("Template", template)?;
-
+async fn fetch_git_path(
+    rel_path: &str,
+    target: &Path,
+    force: bool,
+    kind: Kind,
+    name: &str,
+) -> Result<()> {
     if !force && !fs::is_dir_empty(target)? {
         return TargetNotEmptySnafu { path: target }.fail();
     }
 
     fs::ensure_dir(target)?;
 
-    tracing::info!(template = %template, target = %target.display(), "fetching template");
+    tracing::info!(path = %rel_path, target = %target.display(), "fetching template from origin");
 
     let temp_workspace = tempdir().context(IoSnafu {
         path: std::env::temp_dir(),
@@ -39,19 +43,18 @@ pub async fn fetch(template: &str, target: &Path, force: bool) -> Result<()> {
     )
     .await?;
 
-    let template_rel = format!("templates/{}", template);
     process::exec(
         "git",
-        ["sparse-checkout", "set", "--", &template_rel],
+        ["sparse-checkout", "set", "--", rel_path],
         Some(temp_dir),
     )
     .await?;
 
-    let src = temp_dir.join(&template_rel);
+    let src = temp_dir.join(rel_path);
     if !src.exists() {
         return NotFoundSnafu {
-            kind: "Template",
-            name: template.to_string(),
+            kind,
+            name: name.to_string(),
             path: src,
         }
         .fail();
@@ -62,6 +65,30 @@ pub async fn fetch(template: &str, target: &Path, force: bool) -> Result<()> {
     nix::fmt([target.as_os_str()]).await?;
 
     Ok(())
+}
+
+pub async fn fetch_template(template: &str, target: &Path, force: bool) -> Result<()> {
+    validate_name(Kind::Template, template)?;
+    fetch_git_path(
+        &format!("templates/{}", template),
+        target,
+        force,
+        Kind::Template,
+        template,
+    )
+    .await
+}
+
+pub async fn fetch_provider(provider: &str, target: &Path) -> Result<()> {
+    validate_name(Kind::Provider, provider)?;
+    fetch_git_path(
+        &format!("templates/providers/{}", provider),
+        target,
+        true,
+        Kind::Provider,
+        provider,
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -75,7 +102,7 @@ mod tests {
         let file = target.join("existing.txt");
         fs::write_file(&file, "content").unwrap();
 
-        let res = fetch("base", target, false).await;
+        let res = fetch_template("base", target, false).await;
         assert!(res.is_err());
     }
 
@@ -84,7 +111,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let target = dir.path();
 
-        let res = fetch("nonexistent-template-123", target, false).await;
+        let res = fetch_template("nonexistent-template-123", target, false).await;
         assert!(res.is_err());
     }
 
@@ -93,10 +120,10 @@ mod tests {
         let dir = tempdir().unwrap();
         let target = dir.path();
 
-        let res = fetch("../.git", target, false).await;
+        let res = fetch_template("../.git", target, false).await;
         match res {
             Err(crate::error::RockyError::InvalidName { kind, name }) => {
-                assert_eq!(kind, "Template");
+                assert_eq!(kind, Kind::Template);
                 assert_eq!(name, "../.git");
             }
             other => panic!("expected InvalidName, got {:?}", other),
