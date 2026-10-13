@@ -1,5 +1,8 @@
 {
   inputs,
+  config ? {
+    defaultProvider = "hetzner";
+  },
   environmentsDir ? ../environments,
   servicesDir ? ../services,
 }:
@@ -41,6 +44,7 @@ let
     let
       fullHostName = "${env.name}-${hostName}";
       systemArchitecture = hostConfig.system or "x86_64-linux";
+      provider = hostConfig.provider or config.defaultProvider;
       normalizedServices = normalize hostConfig.services;
 
       serviceModules = map (
@@ -58,7 +62,11 @@ let
         system = systemArchitecture;
         specialArgs = {
           inherit inputs hostName;
-          hostConfig = hostConfig // {
+          hostConfig = {
+            inherit provider;
+          }
+          // hostConfig
+          // {
             services = normalizedServices;
           };
           environment = env.name;

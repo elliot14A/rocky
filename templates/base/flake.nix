@@ -22,9 +22,17 @@
       ...
     }:
     let
-      fleet = import ./lib { inherit inputs; };
+      config = {
+        defaultProvider = "hetzner";
+      };
+
+      fleet = import ./lib {
+        inherit inputs config;
+      };
     in
     {
+      rockyFleet = true;
+      inherit config;
       inherit (fleet) nixosConfigurations deploy;
     };
 }
