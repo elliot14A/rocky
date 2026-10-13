@@ -8,4 +8,4 @@ pub mod ui;
 pub mod utils;
 
 pub use commands::Command;
-pub use error::{Result, RockyError};
+pub use error::{Kind, Result, RockyError};
