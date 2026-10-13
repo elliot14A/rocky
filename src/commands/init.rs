@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
 use clap::Args;
+use tap::prelude::*;
 
 use crate::error::Result;
-
 use crate::templates;
 use crate::ui;
 
@@ -27,17 +27,16 @@ pub async fn run(args: InitArgs) -> Result<()> {
             args.template,
             args.path.display()
         ),
-        || templates::fetch(&args.template, &args.path, args.force),
+        || templates::fetch_template(&args.template, &args.path, args.force),
     )
     .await?;
 
-    let mut steps = Vec::new();
-    if args.path != Path::new(".") && args.path != Path::new("") {
-        steps.push(format!("cd {}", args.path.display()));
-    }
-    steps.push("rocky new env <name>".to_string());
-
-    ui::next_steps(&steps);
+    (args.path != Path::new(".") && args.path != Path::new(""))
+        .then(|| format!("cd {}", args.path.display()))
+        .into_iter()
+        .chain(std::iter::once("rocky new env <name>".to_string()))
+        .collect::<Vec<_>>()
+        .pipe(|steps| ui::next_steps(&steps));
 
     Ok(())
 }

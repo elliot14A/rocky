@@ -4,11 +4,13 @@ use tempfile::{tempdir, TempDir};
 use rocky::commands::init::{self, InitArgs};
 use rocky::Result;
 
+#[allow(dead_code)]
 pub struct TestWorkspace {
     _dir: TempDir,
     pub path: std::path::PathBuf,
 }
 
+#[allow(dead_code)]
 impl TestWorkspace {
     pub fn new() -> Self {
         let dir = tempdir().expect("failed to create temp dir");
@@ -33,6 +35,7 @@ impl TestWorkspace {
                 args.path = self.path.join(args.path);
                 init::run(args).await
             }
+            _ => unreachable!(),
         }
     }
 
