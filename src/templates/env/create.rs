@@ -1,7 +1,5 @@
 use std::path::Path;
 
-use tap::prelude::*;
-
 use crate::error::{AlreadyExistsSnafu, Kind, Result};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix};
@@ -81,6 +79,10 @@ pub async fn create(name: &str, fleet_root: &Path) -> Result<()> {
     let secrets_dir = env_dir.join("secrets");
 
     fs::ensure_dir(&env_dir)?;
+
+    let mut rollback = fs::Rollback::new();
+    rollback.remove_dir_on_failure(&env_dir);
+
     fs::ensure_dir(&hosts_dir)?;
     fs::ensure_dir(&secrets_dir)?;
 
@@ -89,25 +91,13 @@ pub async fn create(name: &str, fleet_root: &Path) -> Result<()> {
     let keys_path = env_dir.join("keys.nix");
     let secrets_path = secrets_dir.join("secrets.nix");
 
-    generate_fleet_nix(name)
-        .pipe(|content| fs::write_file(&fleet_path, &content))
-        .tap_err(|_| {
-            let _ = std::fs::remove_dir_all(&env_dir);
-        })?;
-
-    fs::write_file(&env_path, generate_env_nix()).tap_err(|_| {
-        let _ = std::fs::remove_dir_all(&env_dir);
-    })?;
-
-    fs::write_file(&keys_path, generate_keys_nix()).tap_err(|_| {
-        let _ = std::fs::remove_dir_all(&env_dir);
-    })?;
-
-    fs::write_file(&secrets_path, generate_secrets_nix()).tap_err(|_| {
-        let _ = std::fs::remove_dir_all(&env_dir);
-    })?;
-
+    fs::write_file(&fleet_path, &generate_fleet_nix(name))?;
+    fs::write_file(&env_path, generate_env_nix())?;
+    fs::write_file(&keys_path, generate_keys_nix())?;
+    fs::write_file(&secrets_path, generate_secrets_nix())?;
     nix::fmt([&fleet_path, &env_path, &keys_path, &secrets_path]).await?;
+
+    rollback.commit();
 
     tracing::info!(env = %name, "scaffolded environment");
 

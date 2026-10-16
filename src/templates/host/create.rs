@@ -116,33 +116,28 @@ pub async fn create(
 
     fs::ensure_dir(&host_dir)?;
 
-    let scaffold_res = async {
-        fetch_partitions(&host_dir).await?;
-        fetch_provider(provider, &host_dir).await?;
+    let mut rollback = fs::Rollback::new();
+    rollback.remove_dir_on_failure(&host_dir);
+    rollback.restore_file_on_failure(&fleet_nix_path, &fleet_content);
 
-        let default_path = host_dir.join("default.nix");
-        let default_content = generate_default_nix(&env_name, name);
-        fs::write_file(&default_path, &default_content)?;
+    fetch_partitions(&host_dir).await?;
+    fetch_provider(provider, &host_dir).await?;
 
-        fs::write_file(&fleet_nix_path, &updated_fleet)?;
+    let default_path = host_dir.join("default.nix");
+    let default_content = generate_default_nix(&env_name, name);
+    fs::write_file(&default_path, &default_content)?;
 
-        nix::fmt([
-            &default_path,
-            &host_dir.join("disko.nix"),
-            &host_dir.join("hardware.nix"),
-            &fleet_nix_path,
-        ])
-        .await?;
+    fs::write_file(&fleet_nix_path, &updated_fleet)?;
 
-        Ok(())
-    }
-    .await;
+    nix::fmt([
+        &default_path,
+        &host_dir.join("disko.nix"),
+        &host_dir.join("hardware.nix"),
+        &fleet_nix_path,
+    ])
+    .await?;
 
-    if let Err(err) = scaffold_res {
-        let _ = std::fs::remove_dir_all(&host_dir);
-        let _ = fs::write_file(&fleet_nix_path, &fleet_content);
-        return Err(err);
-    }
+    rollback.commit();
 
     tracing::info!(host = %name, env = %env_name, provider = %provider, "scaffolded host");
 
