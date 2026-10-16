@@ -71,6 +71,7 @@ pub enum Kind {
     Environment,
     Host,
     Service,
+    Secret,
 }
 
 impl std::fmt::Display for Kind {
@@ -82,6 +83,7 @@ impl std::fmt::Display for Kind {
             Self::Environment => write!(f, "Environment"),
             Self::Host => write!(f, "Host"),
             Self::Service => write!(f, "Service"),
+            Self::Secret => write!(f, "Secret"),
         }
     }
 }
