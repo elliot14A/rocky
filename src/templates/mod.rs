@@ -1,3 +1,4 @@
+pub mod env;
 mod fetch;
 pub mod host;
 
