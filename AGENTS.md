@@ -22,9 +22,19 @@ Rocky is a minimal deployment tool and CLI for managing NixOS fleets without clu
      - `src/commands/new/host.rs`
      - `src/commands/new/service.rs`
 
+## Codebase Searches and Lookups with Graphify
+
+To save context tokens and avoid scanning raw files across the codebase:
+- Use `graphify query "<question>"` for architecture lookups, cross-module relationships, and call chains.
+- Use `graphify path "<source>" "<target>"` to find connections between two concepts or modules.
+- Use `graphify explain "<node>"` for node summaries and connections.
+- After adding or modifying files, update the knowledge graph with `graphify extract . --code-only`.
+- Only read raw source files when modifying them or inspecting specific implementation details.
+
 ## Verification Before Claims
 
 Before marking any task complete or committing changes:
 - Run Rust checks: `cargo check` and `cargo test`.
 - Run strict Nix checks: `nix flake check` or `nix-instantiate --eval --strict`.
 - Never claim a command passed without running it and inspecting the output.
+
