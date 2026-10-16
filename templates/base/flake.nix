@@ -23,11 +23,11 @@
     }:
     let
       config = {
-        defaultProvider = "hetzner";
+        defaultProvider = "default";
       };
 
       fleet = import ./lib {
-        inherit inputs config;
+        inherit inputs;
       };
     in
     {
