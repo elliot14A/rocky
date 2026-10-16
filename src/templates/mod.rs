@@ -1,6 +1,7 @@
 pub mod env;
 mod fetch;
 pub mod host;
+pub mod service;
 
 pub(crate) const REPO: &str = "https://github.com/elliot14A/rocky.git";
 
