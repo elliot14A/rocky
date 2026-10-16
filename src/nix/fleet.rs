@@ -53,70 +53,10 @@ where
         .await
 }
 
-fn attr_to_name(attr: &ast::Attr) -> Option<String> {
-    match attr {
-        ast::Attr::Ident(ident) => Some(ident.to_string()),
-        ast::Attr::Str(s) => Some(s.to_string().trim_matches('"').to_string()),
-        _ => None,
-    }
-}
+use super::ast::{attr_to_name, parse_root_attr_set};
 
 pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<String> {
-    let parse = rnix::Root::parse(content);
-    let errors = parse.errors();
-    if !errors.is_empty() {
-        return NixParseSnafu {
-            path: path.to_path_buf(),
-            reason: format!("syntax errors: {:?}", errors),
-        }
-        .fail();
-    }
-
-    let root_expr = parse.tree().expr().context(NixParseSnafu {
-        path: path.to_path_buf(),
-        reason: "empty Nix expression",
-    })?;
-
-    let root_set = match root_expr {
-        ast::Expr::AttrSet(s) => s,
-        ast::Expr::Lambda(l) => match l.body() {
-            Some(ast::Expr::AttrSet(s)) => s,
-            Some(ast::Expr::LetIn(let_in)) => match let_in.body() {
-                Some(ast::Expr::AttrSet(s)) => s,
-                _ => {
-                    return NixParseSnafu {
-                        path: path.to_path_buf(),
-                        reason: "expected attribute set body in let-in expression",
-                    }
-                    .fail()
-                }
-            },
-            _ => {
-                return NixParseSnafu {
-                    path: path.to_path_buf(),
-                    reason: "expected attribute set body in lambda expression",
-                }
-                .fail()
-            }
-        },
-        ast::Expr::LetIn(let_in) => match let_in.body() {
-            Some(ast::Expr::AttrSet(s)) => s,
-            _ => {
-                return NixParseSnafu {
-                    path: path.to_path_buf(),
-                    reason: "expected attribute set body in let-in expression",
-                }
-                .fail()
-            }
-        },
-        _ => {
-            return NixParseSnafu {
-                path: path.to_path_buf(),
-                reason: "expected root attribute set",
-            }
-            .fail()
-        }
-    };
+    let root_set = parse_root_attr_set(content, path)?;
 
     let mut hosts_attr_set: Option<ast::AttrSet> = None;
     let mut has_dotted_hosts = false;

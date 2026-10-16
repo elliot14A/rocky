@@ -436,6 +436,7 @@ dependencies = [
  "clap",
  "indicatif",
  "rnix",
+ "rowan",
  "snafu",
  "tap",
  "tempfile",

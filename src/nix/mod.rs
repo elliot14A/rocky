@@ -1,3 +1,4 @@
+mod ast;
 mod eval;
 mod fleet;
 mod fmt;
