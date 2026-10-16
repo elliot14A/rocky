@@ -1,8 +1,5 @@
 use std::path::Path;
 
-use snafu::OptionExt;
-use tap::prelude::*;
-
 use crate::error::{Kind, NotFoundSnafu, Result};
 use crate::process;
 
@@ -18,30 +15,22 @@ pub async fn eval(expr: &str) -> Result<String> {
 pub async fn eval_default_provider(fleet_path: &Path) -> Result<String> {
     let abs_path = std::fs::canonicalize(fleet_path).unwrap_or_else(|_| fleet_path.to_path_buf());
     let expr = format!(
-        "(builtins.getFlake (toString \"{}\")).config.defaultProvider",
+        "let flake = (builtins.getFlake (toString \"{}\")); in if flake ? config.defaultProvider && builtins.isString flake.config.defaultProvider && flake.config.defaultProvider != \"\" then flake.config.defaultProvider else null",
         abs_path.display()
     );
 
-    eval(&expr)
-        .await
-        .map_err(|_| {
-            NotFoundSnafu {
-                kind: Kind::Provider,
-                name: "defaultProvider".to_string(),
-                path: fleet_path.join("flake.nix"),
-            }
-            .build()
-        })?
-        .pipe(|raw| raw.trim().trim_matches('"').trim().to_string())
-        .pipe(|provider| {
-            (!provider.is_empty())
-                .then_some(provider)
-                .context(NotFoundSnafu {
-                    kind: Kind::Provider,
-                    name: "defaultProvider".to_string(),
-                    path: fleet_path.join("flake.nix"),
-                })
-        })
+    let raw = eval(&expr).await?;
+    let trimmed = raw.trim().trim_matches('"').trim();
+    if trimmed == "null" || trimmed.is_empty() {
+        return NotFoundSnafu {
+            kind: Kind::Provider,
+            name: "defaultProvider".to_string(),
+            path: fleet_path.join("flake.nix"),
+        }
+        .fail();
+    }
+
+    Ok(trimmed.to_string())
 }
 
 #[cfg(test)]

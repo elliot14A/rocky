@@ -18,6 +18,10 @@ pub struct HostArgs {
     /// Cloud VPS provider (defaults to flake.nix defaultProvider)
     #[arg(short, long)]
     pub provider: Option<String>,
+
+    /// Partitioning tool (defaults to disko)
+    #[arg(long)]
+    pub partition: Option<String>,
 }
 
 pub async fn run(args: HostArgs, target: Option<&Path>) -> Result<()> {
@@ -28,9 +32,15 @@ pub async fn run(args: HostArgs, target: Option<&Path>) -> Result<()> {
 }
 
 async fn execute(args: HostArgs, fleet_root: &Path) -> Result<()> {
+    let _partition = args.partition.as_deref().unwrap_or("disko");
+
     let provider = match args.provider {
         Some(p) => p,
-        None => nix::eval_default_provider(fleet_root).await?,
+        None => match nix::eval_default_provider(fleet_root).await {
+            Ok(p) => p,
+            Err(crate::error::RockyError::NotFound { .. }) => "default".to_string(),
+            Err(err) => return Err(err),
+        },
     };
 
     templates::host::create(&args.name, args.env.as_deref(), &provider, fleet_root)
@@ -42,10 +52,7 @@ async fn execute(args: HostArgs, fleet_root: &Path) -> Result<()> {
             ));
 
             ui::next_steps(&[
-                format!(
-                    "Add '{}' to environments/{}/fleet.nix hosts list",
-                    args.name, env
-                ),
+                format!("Assign services in environments/{}/fleet.nix", env),
                 format!("Deploy with 'rocky up {}'", env),
             ]);
         })

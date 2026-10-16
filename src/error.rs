@@ -58,6 +58,9 @@ pub enum RockyError {
 
     #[snafu(display("Insecure path '{}'", path.display()))]
     InsecurePath { path: PathBuf, reason: String },
+
+    #[snafu(display("Failed to parse Nix file at {}: {reason}", path.display()))]
+    NixParse { path: PathBuf, reason: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -159,5 +162,17 @@ mod tests {
             reason: "symlink escapes source directory".to_string(),
         };
         assert_eq!(err.to_string(), "Insecure path '/etc/passwd'");
+    }
+
+    #[test]
+    fn test_nix_parse_display() {
+        let err = RockyError::NixParse {
+            path: PathBuf::from("environments/prod/fleet.nix"),
+            reason: "syntax error".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Failed to parse Nix file at environments/prod/fleet.nix: syntax error"
+        );
     }
 }

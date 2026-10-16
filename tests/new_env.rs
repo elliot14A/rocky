@@ -146,6 +146,7 @@ async fn test_new_env_followed_by_new_host_flow() {
             name: "srv-01".to_string(),
             env: Some("qa".to_string()),
             provider: Some("hetzner".to_string()),
+            partition: None,
         },
         Some(&fleet_path),
     )
@@ -163,4 +164,9 @@ async fn test_new_env_followed_by_new_host_flow() {
 
     let default_nix = fs::read_to_string(host_dir.join("default.nix")).unwrap();
     assert!(default_nix.contains("qa-srv-01"));
+
+    let fleet_nix =
+        fs::read_to_string(fleet_path.join("environments").join("qa").join("fleet.nix")).unwrap();
+    assert!(fleet_nix.contains(r#""srv-01" = {"#));
+    assert!(fleet_nix.contains(r#"services = [ ];"#));
 }

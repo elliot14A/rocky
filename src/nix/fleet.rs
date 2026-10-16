@@ -1,9 +1,10 @@
 use std::path::{Path, PathBuf};
 
+use rnix::ast::{self, HasEntry};
 use snafu::{OptionExt, ResultExt};
 use tap::prelude::*;
 
-use crate::error::{IoSnafu, Kind, NotFoundSnafu, Result};
+use crate::error::{AlreadyExistsSnafu, IoSnafu, Kind, NixParseSnafu, NotFoundSnafu, Result};
 
 async fn verify_fleet(dir: &Path) -> Result<PathBuf> {
     let flake_path = dir.join("flake.nix");
@@ -50,6 +51,170 @@ where
         .tap_ok(|root| tracing::debug!(fleet_root = %root.display(), "verified fleet root"))?
         .pipe(f)
         .await
+}
+
+fn attr_to_name(attr: &ast::Attr) -> Option<String> {
+    match attr {
+        ast::Attr::Ident(ident) => Some(ident.to_string()),
+        ast::Attr::Str(s) => Some(s.to_string().trim_matches('"').to_string()),
+        _ => None,
+    }
+}
+
+pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<String> {
+    let parse = rnix::Root::parse(content);
+    let errors = parse.errors();
+    if !errors.is_empty() {
+        return NixParseSnafu {
+            path: path.to_path_buf(),
+            reason: format!("syntax errors: {:?}", errors),
+        }
+        .fail();
+    }
+
+    let root_expr = parse.tree().expr().context(NixParseSnafu {
+        path: path.to_path_buf(),
+        reason: "empty Nix expression",
+    })?;
+
+    let root_set = match root_expr {
+        ast::Expr::AttrSet(s) => s,
+        ast::Expr::Lambda(l) => match l.body() {
+            Some(ast::Expr::AttrSet(s)) => s,
+            Some(ast::Expr::LetIn(let_in)) => match let_in.body() {
+                Some(ast::Expr::AttrSet(s)) => s,
+                _ => {
+                    return NixParseSnafu {
+                        path: path.to_path_buf(),
+                        reason: "expected attribute set body in let-in expression",
+                    }
+                    .fail()
+                }
+            },
+            _ => {
+                return NixParseSnafu {
+                    path: path.to_path_buf(),
+                    reason: "expected attribute set body in lambda expression",
+                }
+                .fail()
+            }
+        },
+        ast::Expr::LetIn(let_in) => match let_in.body() {
+            Some(ast::Expr::AttrSet(s)) => s,
+            _ => {
+                return NixParseSnafu {
+                    path: path.to_path_buf(),
+                    reason: "expected attribute set body in let-in expression",
+                }
+                .fail()
+            }
+        },
+        _ => {
+            return NixParseSnafu {
+                path: path.to_path_buf(),
+                reason: "expected root attribute set",
+            }
+            .fail()
+        }
+    };
+
+    let mut hosts_attr_set: Option<ast::AttrSet> = None;
+    let mut has_dotted_hosts = false;
+
+    for entry in root_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+
+        let mut attrs = attrpath.attrs();
+        let Some(first_attr) = attrs.next() else {
+            continue;
+        };
+
+        if attr_to_name(&first_attr).as_deref() != Some("hosts") {
+            continue;
+        }
+
+        if let Some(second_attr) = attrs.next() {
+            has_dotted_hosts = true;
+            if attr_to_name(&second_attr).as_deref() == Some(host_name) {
+                return AlreadyExistsSnafu {
+                    kind: Kind::Host,
+                    name: host_name.to_string(),
+                    path: path.to_path_buf(),
+                }
+                .fail();
+            }
+            continue;
+        }
+
+        if let Some(ast::Expr::AttrSet(hosts_set)) = entry.value() {
+            for child in hosts_set.attrpath_values() {
+                if let Some(child_attrpath) = child.attrpath() {
+                    if let Some(child_first) = child_attrpath.attrs().next() {
+                        if attr_to_name(&child_first).as_deref() == Some(host_name) {
+                            return AlreadyExistsSnafu {
+                                kind: Kind::Host,
+                                name: host_name.to_string(),
+                                path: path.to_path_buf(),
+                            }
+                            .fail();
+                        }
+                    }
+                }
+            }
+            hosts_attr_set = Some(hosts_set);
+        }
+    }
+
+    match hosts_attr_set {
+        Some(hosts_set) => {
+            let r_curly = hosts_set.r_curly_token().context(NixParseSnafu {
+                path: path.to_path_buf(),
+                reason: "missing closing brace for hosts attribute set",
+            })?;
+            let r_pos = usize::from(r_curly.text_range().start());
+
+            let snippet = format!("  \"{host_name}\" = {{\n    services = [ ];\n  }};\n");
+
+            let mut updated = content[..r_pos].to_string();
+            if !updated.ends_with('\n') {
+                updated.push('\n');
+            }
+            updated.push_str(&snippet);
+            updated.push_str(&content[r_pos..]);
+            Ok(updated)
+        }
+        None => {
+            let root_r_curly = root_set.r_curly_token().context(NixParseSnafu {
+                path: path.to_path_buf(),
+                reason: "missing closing brace for root attribute set",
+            })?;
+            let root_r_pos = usize::from(root_r_curly.text_range().start());
+            let snippet = if has_dotted_hosts {
+                format!("  hosts.\"{host_name}\" = {{\n    services = [ ];\n  }};\n")
+            } else {
+                format!(
+                    "  hosts = {{\n    \"{host_name}\" = {{\n      services = [ ];\n    }};\n  }};\n"
+                )
+            };
+            let mut updated = content[..root_r_pos].to_string();
+            if !updated.ends_with('\n') {
+                updated.push('\n');
+            }
+            updated.push_str(&snippet);
+            updated.push_str(&content[root_r_pos..]);
+            Ok(updated)
+        }
+    }
+}
+
+pub async fn register_host(fleet_nix_path: &Path, host_name: &str) -> Result<()> {
+    let content = crate::fs::read_file(fleet_nix_path)?;
+    let updated = insert_host_entry(&content, host_name, fleet_nix_path)?;
+    crate::fs::write_file(fleet_nix_path, &updated)?;
+    super::fmt([fleet_nix_path]).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -181,5 +346,118 @@ mod tests {
             }
             other => panic!("expected NotFound Host from closure, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn test_insert_host_entry_empty_hosts() {
+        let input = r#"{
+  settings = {
+    domain = "prod.rocky.internal";
+  };
+  hosts = { };
+}
+"#;
+        let res = insert_host_entry(input, "web-01", Path::new("fleet.nix")).unwrap();
+        assert!(res.contains(r#""web-01" = {"#));
+        assert!(res.contains(r#"services = [ ];"#));
+
+        // Re-parsing the output must be valid Nix
+        let parse = rnix::Root::parse(&res);
+        assert!(parse.errors().is_empty());
+    }
+
+    #[test]
+    fn test_insert_host_entry_existing_hosts() {
+        let input = r#"{
+  hosts = {
+    "001" = {
+      services = [ ];
+    };
+  };
+}
+"#;
+        let res = insert_host_entry(input, "002", Path::new("fleet.nix")).unwrap();
+        assert!(res.contains(r#""001" = {"#));
+        assert!(res.contains(r#""002" = {"#));
+
+        let parse = rnix::Root::parse(&res);
+        assert!(parse.errors().is_empty());
+    }
+
+    #[test]
+    fn test_insert_host_entry_duplicate_rejected() {
+        let input = r#"{
+  hosts = {
+    "web-01" = {
+      services = [ ];
+    };
+  };
+}
+"#;
+        let res = insert_host_entry(input, "web-01", Path::new("fleet.nix"));
+        match res {
+            Err(crate::error::RockyError::AlreadyExists { kind, name, .. }) => {
+                assert_eq!(kind, Kind::Host);
+                assert_eq!(name, "web-01");
+            }
+            other => panic!("expected AlreadyExists Host, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_insert_host_entry_without_hosts_set() {
+        let input = r#"{
+  settings = {
+    domain = "staging.rocky.internal";
+  };
+}
+"#;
+        let res = insert_host_entry(input, "edge-01", Path::new("fleet.nix")).unwrap();
+        assert!(res.contains("hosts = {"));
+        assert!(res.contains(r#""edge-01" = {"#));
+
+        let parse = rnix::Root::parse(&res);
+        assert!(parse.errors().is_empty());
+    }
+
+    #[test]
+    fn test_insert_host_entry_syntax_error() {
+        let input = "not valid nix {";
+        let res = insert_host_entry(input, "web-01", Path::new("fleet.nix"));
+        match res {
+            Err(crate::error::RockyError::NixParse { .. }) => {}
+            other => panic!("expected NixParse, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_insert_host_entry_dotted_syntax() {
+        let input = r#"{
+  hosts."001" = {
+    services = [ ];
+  };
+}
+"#;
+        let res = insert_host_entry(input, "002", Path::new("fleet.nix")).unwrap();
+        assert!(res.contains(r#"hosts."002" = {"#));
+
+        let parse = rnix::Root::parse(&res);
+        assert!(parse.errors().is_empty());
+    }
+
+    #[test]
+    fn test_insert_host_entry_preserves_comments() {
+        let input = r#"{
+  hosts = {
+    # Keep this comment intact
+  };
+}
+"#;
+        let res = insert_host_entry(input, "web-01", Path::new("fleet.nix")).unwrap();
+        assert!(res.contains("# Keep this comment intact"));
+        assert!(res.contains(r#""web-01" = {"#));
+
+        let parse = rnix::Root::parse(&res);
+        assert!(parse.errors().is_empty());
     }
 }

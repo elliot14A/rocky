@@ -4,4 +4,4 @@ pub mod host;
 
 pub(crate) const REPO: &str = "https://github.com/elliot14A/rocky.git";
 
-pub use fetch::{fetch_provider, fetch_template};
+pub use fetch::{fetch_partitions, fetch_provider, fetch_template};

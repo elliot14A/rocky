@@ -14,12 +14,24 @@ async fn fetch_git_path(
     force: bool,
     kind: Kind,
     name: &str,
+    format: bool,
 ) -> Result<()> {
     if !force && !fs::is_dir_empty(target)? {
         return TargetNotEmptySnafu { path: target }.fail();
     }
 
     fs::ensure_dir(target)?;
+
+    if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
+        let local_src = Path::new(&manifest_dir).join(rel_path);
+        if local_src.exists() {
+            fs::copy_dir_all(&local_src, target)?;
+            if format {
+                nix::fmt([target.as_os_str()]).await?;
+            }
+            return Ok(());
+        }
+    }
 
     tracing::info!(path = %rel_path, target = %target.display(), "fetching template from origin");
 
@@ -62,7 +74,9 @@ async fn fetch_git_path(
 
     fs::copy_dir_all(&src, target)?;
 
-    nix::fmt([target.as_os_str()]).await?;
+    if format {
+        nix::fmt([target.as_os_str()]).await?;
+    }
 
     Ok(())
 }
@@ -75,6 +89,7 @@ pub async fn fetch_template(template: &str, target: &Path, force: bool) -> Resul
         force,
         Kind::Template,
         template,
+        true,
     )
     .await
 }
@@ -87,6 +102,19 @@ pub async fn fetch_provider(provider: &str, target: &Path) -> Result<()> {
         true,
         Kind::Provider,
         provider,
+        false,
+    )
+    .await
+}
+
+pub async fn fetch_partitions(target: &Path) -> Result<()> {
+    fetch_git_path(
+        "templates/partitions",
+        target,
+        true,
+        Kind::Template,
+        "partitions",
+        false,
     )
     .await
 }

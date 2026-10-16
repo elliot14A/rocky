@@ -4,7 +4,7 @@ use snafu::ResultExt;
 use tap::prelude::*;
 
 use crate::error::{AlreadyExistsSnafu, IoSnafu, Kind, NotFoundSnafu, Result};
-use crate::templates::fetch_provider;
+use crate::templates::{fetch_partitions, fetch_provider};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix};
 
@@ -82,6 +82,23 @@ pub async fn create(
     validate_name(Kind::Provider, provider)?;
 
     let env_name = resolve_environment(&fleet_root.join("environments"), env)?;
+    let fleet_nix_path = fleet_root
+        .join("environments")
+        .join(&env_name)
+        .join("fleet.nix");
+
+    if !fleet_nix_path.is_file() {
+        return NotFoundSnafu {
+            kind: Kind::Fleet,
+            name: "fleet.nix".to_string(),
+            path: fleet_nix_path,
+        }
+        .fail();
+    }
+
+    let fleet_content = fs::read_file(&fleet_nix_path)?;
+    let updated_fleet = nix::insert_host_entry(&fleet_content, name, &fleet_nix_path)?;
+
     let host_dir = fleet_root
         .join("environments")
         .join(&env_name)
@@ -99,15 +116,33 @@ pub async fn create(
 
     fs::ensure_dir(&host_dir)?;
 
-    fetch_provider(provider, &host_dir).await.tap_err(|_| {
+    let scaffold_res = async {
+        fetch_partitions(&host_dir).await?;
+        fetch_provider(provider, &host_dir).await?;
+
+        let default_path = host_dir.join("default.nix");
+        let default_content = generate_default_nix(&env_name, name);
+        fs::write_file(&default_path, &default_content)?;
+
+        fs::write_file(&fleet_nix_path, &updated_fleet)?;
+
+        nix::fmt([
+            &default_path,
+            &host_dir.join("disko.nix"),
+            &host_dir.join("hardware.nix"),
+            &fleet_nix_path,
+        ])
+        .await?;
+
+        Ok(())
+    }
+    .await;
+
+    if let Err(err) = scaffold_res {
         let _ = std::fs::remove_dir_all(&host_dir);
-    })?;
-
-    let default_path = host_dir.join("default.nix");
-    generate_default_nix(&env_name, name)
-        .pipe(|content| fs::write_file(&default_path, &content))?;
-
-    nix::fmt([&default_path]).await?;
+        let _ = fs::write_file(&fleet_nix_path, &fleet_content);
+        return Err(err);
+    }
 
     tracing::info!(host = %name, env = %env_name, provider = %provider, "scaffolded host");
 
