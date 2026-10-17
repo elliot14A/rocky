@@ -165,6 +165,7 @@ pub fn ensure_disk(disk_path: &Path, size_gb: u64) -> Result<()> {
     let target_dir = disk_path.parent().unwrap_or(Path::new("."));
     check_available_space(target_dir, required_bytes)?;
 
+    ui::info(format!("Allocating sparse {size_gb} GB raw disk..."));
     let file = File::create(disk_path).context(IoSnafu { path: disk_path })?;
     file.set_len(required_bytes)
         .context(IoSnafu { path: disk_path })?;
@@ -227,7 +228,10 @@ pub fn build_qemu_args(
 
         if let Some(seed) = seed_dir {
             args.push("-drive".to_string());
-            args.push(format!("file=fat:ro:{},format=raw", seed.display()));
+            args.push(format!(
+                "file=fat:ro:{},format=raw,if=virtio,read-only=on",
+                seed.display()
+            ));
         }
     }
 
@@ -400,7 +404,9 @@ mod tests {
         assert!(args
             .iter()
             .any(|a| a.contains("hostfwd=tcp:127.0.0.1:2222-:22")));
-        assert!(args.iter().any(|a| a.contains("file=fat:ro:/tmp/seed")));
+        assert!(args
+            .iter()
+            .any(|a| a.contains("file=fat:ro:/tmp/seed,format=raw,if=virtio,read-only=on")));
         assert!(args.contains(&"-cdrom".to_string()));
         assert!(args.contains(&"/tmp/alpine.iso".to_string()));
     }
@@ -420,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_box_dir_does_not_create_phantom_directory() {
-        let temp = tempdir().unwrap();
+        let _temp = tempdir().unwrap();
         let name = "phantom-box";
         let b_dir = box_dir(name).unwrap();
         // Must NOT create the directory as a side effect

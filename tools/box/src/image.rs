@@ -47,6 +47,7 @@ pub async fn ensure_alpine_iso(custom_iso: Option<&Path>) -> Result<PathBuf> {
     }
 
     let temp_download = cache.join(format!("{DEFAULT_ALPINE_FILENAME}.download"));
+    rocky::ui::info("Downloading minimal Alpine virtual ISO (~60 MB)...");
     tracing::info!(
         url = DEFAULT_ALPINE_URL,
         target = %iso_path.display(),
@@ -121,6 +122,7 @@ pub fn create_seed_apkovl(seed_dir: &Path) -> Result<PathBuf> {
     rocky::fs::ensure_dir(seed_dir)?;
     let apkovl_path = seed_dir.join("localhost.apkovl.tar.gz");
 
+    rocky::ui::info("Generating seed overlay for root SSH access (localhost.apkovl.tar.gz)...");
     let file = File::create(&apkovl_path).context(IoSnafu { path: &apkovl_path })?;
     let enc = GzEncoder::new(file, Compression::default());
     let mut tar = Builder::new(enc);
