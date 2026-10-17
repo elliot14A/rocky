@@ -40,7 +40,7 @@ enum Commands {
         port: u16,
 
         /// Disk size in GB (default: 10)
-        #[arg(short, long, default_value_t = 10)]
+        #[arg(long, default_value_t = 10)]
         disk_size: u64,
 
         /// Boot directly from installed disk (skip rescue ISO)
