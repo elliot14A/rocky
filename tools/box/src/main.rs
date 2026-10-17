@@ -6,6 +6,7 @@ use rocky::process::log;
 use rocky::ui;
 use tap::prelude::*;
 
+pub mod clean;
 pub mod error;
 pub mod image;
 pub mod list;
@@ -63,6 +64,16 @@ enum Commands {
 
     /// List all local boxes and their status
     List,
+
+    /// Manually clean box disks and state files
+    Clean {
+        /// Name of the box to clean
+        name: Option<String>,
+
+        /// Clean all boxes
+        #[arg(long, conflicts_with = "name")]
+        all: bool,
+    },
 }
 
 #[tokio::main]
@@ -93,6 +104,14 @@ async fn main() -> ExitCode {
         Commands::List => list::list_boxes().map(|boxes| {
             list::print_boxes(&boxes);
         }),
+        Commands::Clean { name, all } => match (name, all) {
+            (_, true) => clean::clean_all_boxes().await,
+            (Some(n), false) => clean::clean_box(&n).await,
+            (None, false) => {
+                ui::error("Specify a box name or pass '--all'");
+                return ExitCode::FAILURE;
+            }
+        },
     };
 
     res.tap_err(|err| ui::error(err.to_string()))
