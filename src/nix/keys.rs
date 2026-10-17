@@ -3,6 +3,7 @@ use std::path::Path;
 use rnix::ast::{self, HasEntry};
 use rowan::ast::AstNode;
 use snafu::OptionExt;
+use tap::prelude::*;
 
 use crate::error::{Kind, NixParseSnafu, Result};
 use crate::utils::validate::validate_name;
@@ -22,6 +23,53 @@ fn verify_syntax(updated: String, path: &Path) -> Result<String> {
     Ok(updated)
 }
 
+fn is_valid_public_key(key: &str) -> bool {
+    let clean = key.trim();
+    if clean.is_empty()
+        || clean.contains('\n')
+        || clean.contains('\r')
+        || clean.contains('"')
+        || clean.contains('$')
+        || clean.contains('\\')
+    {
+        return false;
+    }
+
+    let parts: Vec<&str> = clean.split_whitespace().collect();
+    if parts.len() < 2 {
+        return false;
+    }
+
+    let key_type = parts[0];
+    let key_data = parts[1];
+
+    if !key_type
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '@' || c == '.')
+    {
+        return false;
+    }
+
+    if !key_data
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+    {
+        return false;
+    }
+
+    if parts.len() > 2 {
+        let comment = parts[2..].join(" ");
+        if comment
+            .chars()
+            .any(|c| c == '"' || c == '$' || c == '\\' || c.is_ascii_control())
+        {
+            return false;
+        }
+    }
+
+    true
+}
+
 pub fn insert_host_key(
     content: &str,
     host_name: &str,
@@ -30,18 +78,15 @@ pub fn insert_host_key(
 ) -> Result<String> {
     validate_name(Kind::Host, host_name)?;
 
-    let clean_key = public_key.trim();
-    if clean_key.is_empty()
-        || clean_key.contains('\n')
-        || clean_key.contains('\r')
-        || clean_key.contains('"')
-    {
+    if !is_valid_public_key(public_key) {
         return NixParseSnafu {
             path: path.to_path_buf(),
             reason: format!("invalid public key format: '{}'", public_key),
         }
         .fail();
     }
+
+    let clean_key = public_key.trim();
 
     let root_set = parse_root_attr_set(content, path)?;
 
@@ -167,15 +212,13 @@ pub async fn register_host_key(
 
     let updated = insert_host_key(&content, host_name, public_key, keys_nix_path)?;
     crate::fs::write_file(keys_nix_path, &updated)?;
-    super::fmt([keys_nix_path]).await?;
-
-    tracing::debug!(
-        host = %host_name,
-        path = %keys_nix_path.display(),
-        "registered host key in keys.nix"
-    );
-
-    Ok(())
+    super::fmt([keys_nix_path]).await.tap_ok(|_| {
+        tracing::debug!(
+            host = %host_name,
+            path = %keys_nix_path.display(),
+            "registered host key in keys.nix"
+        );
+    })
 }
 
 #[cfg(test)]
@@ -291,6 +334,15 @@ mod tests {
         assert!(insert_host_key("{}", "node-01", "", path).is_err());
         assert!(insert_host_key("{}", "node-01", "key\nwith\nnewlines", path).is_err());
         assert!(insert_host_key("{}", "node-01", "key\"with\"quotes", path).is_err());
+        assert!(insert_host_key(
+            "{}",
+            "node-01",
+            "ssh-ed25519 ${builtins.readFile /etc/passwd}",
+            path
+        )
+        .is_err());
+        assert!(insert_host_key("{}", "node-01", "ssh-ed25519 AAA1\\escaped", path).is_err());
+        assert!(insert_host_key("{}", "node-01", "not_enough_parts", path).is_err());
     }
 
     #[test]

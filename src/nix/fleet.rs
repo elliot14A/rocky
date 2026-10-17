@@ -5,6 +5,7 @@ use snafu::{OptionExt, ResultExt};
 use tap::prelude::*;
 
 use crate::error::{AlreadyExistsSnafu, IoSnafu, Kind, NixParseSnafu, NotFoundSnafu, Result};
+use crate::utils::validate::validate_name;
 
 async fn verify_fleet(dir: &Path) -> Result<PathBuf> {
     let flake_path = dir.join("flake.nix");
@@ -53,9 +54,24 @@ where
         .await
 }
 
-use super::ast::{attr_to_name, parse_root_attr_set};
+use super::ast::{attr_to_name, parse_root_attr_set, unwrap_attr_set};
+
+fn verify_syntax(updated: String, path: &Path) -> Result<String> {
+    let parse = rnix::Root::parse(&updated);
+    let errors = parse.errors();
+    if !errors.is_empty() {
+        return NixParseSnafu {
+            path: path.to_path_buf(),
+            reason: format!("resulted in invalid Nix syntax: {:?}", errors),
+        }
+        .fail();
+    }
+    Ok(updated)
+}
 
 pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<String> {
+    validate_name(Kind::Host, host_name)?;
+
     let root_set = parse_root_attr_set(content, path)?;
 
     let mut hosts_attr_set: Option<ast::AttrSet> = None;
@@ -88,22 +104,24 @@ pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<
             continue;
         }
 
-        if let Some(ast::Expr::AttrSet(hosts_set)) = entry.value() {
-            for child in hosts_set.attrpath_values() {
-                if let Some(child_attrpath) = child.attrpath() {
-                    if let Some(child_first) = child_attrpath.attrs().next() {
-                        if attr_to_name(&child_first).as_deref() == Some(host_name) {
-                            return AlreadyExistsSnafu {
-                                kind: Kind::Host,
-                                name: host_name.to_string(),
-                                path: path.to_path_buf(),
+        if let Some(val_expr) = entry.value() {
+            if let Some(hosts_set) = unwrap_attr_set(val_expr) {
+                for child in hosts_set.attrpath_values() {
+                    if let Some(child_attrpath) = child.attrpath() {
+                        if let Some(child_first) = child_attrpath.attrs().next() {
+                            if attr_to_name(&child_first).as_deref() == Some(host_name) {
+                                return AlreadyExistsSnafu {
+                                    kind: Kind::Host,
+                                    name: host_name.to_string(),
+                                    path: path.to_path_buf(),
+                                }
+                                .fail();
                             }
-                            .fail();
                         }
                     }
                 }
+                hosts_attr_set = Some(hosts_set);
             }
-            hosts_attr_set = Some(hosts_set);
         }
     }
 
@@ -123,7 +141,7 @@ pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<
             }
             updated.push_str(&snippet);
             updated.push_str(&content[r_pos..]);
-            Ok(updated)
+            verify_syntax(updated, path)
         }
         None => {
             let root_r_curly = root_set.r_curly_token().context(NixParseSnafu {
@@ -144,7 +162,7 @@ pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<
             }
             updated.push_str(&snippet);
             updated.push_str(&content[root_r_pos..]);
-            Ok(updated)
+            verify_syntax(updated, path)
         }
     }
 }
@@ -399,5 +417,12 @@ mod tests {
 
         let parse = rnix::Root::parse(&res);
         assert!(parse.errors().is_empty());
+    }
+
+    #[test]
+    fn test_insert_host_entry_rejects_invalid_name() {
+        let input = "{\n  hosts = {};\n}\n";
+        let res = insert_host_entry(input, "../evil", Path::new("fleet.nix"));
+        assert!(res.is_err());
     }
 }

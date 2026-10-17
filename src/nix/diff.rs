@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use rnix::ast::HasEntry;
+use rnix::ast::{self, HasEntry};
 use tap::prelude::*;
 
 use crate::error::Result;
@@ -111,7 +111,16 @@ fn extract_key_hosts(keys_src: &str) -> Result<BTreeSet<String>> {
             continue;
         }
 
-        hosts.insert(first_name);
+        if attrs.next().is_some() {
+            continue;
+        }
+
+        if let Some(val_expr) = entry.value() {
+            if matches!(val_expr, ast::Expr::Lambda(_)) {
+                continue;
+            }
+            hosts.insert(first_name);
+        }
     }
 
     Ok(hosts)
@@ -310,6 +319,26 @@ in
         let diff = diff_env(env_dir).expect("diff_env should succeed");
         assert_eq!(diff.declared, vec!["worker-01"]);
         assert_eq!(diff.installed, vec!["worker-01"]);
+        assert!(diff.pending_install.is_empty());
+        assert!(diff.removed.is_empty());
+    }
+
+    #[test]
+    fn test_diff_hosts_ignores_helper_functions_and_dotted_non_hosts() {
+        let fleet = r#"{
+  hosts = {
+    web-01 = {};
+  };
+}"#;
+        let keys = r#"{
+  mkKey = name: "ssh-ed25519 dummy";
+  config.admin = "user";
+  "web-01" = "ssh-ed25519 AAA1";
+}"#;
+
+        let diff = diff_hosts(fleet, keys).unwrap();
+        assert_eq!(diff.declared, vec!["web-01"]);
+        assert_eq!(diff.installed, vec!["web-01"]);
         assert!(diff.pending_install.is_empty());
         assert!(diff.removed.is_empty());
     }
