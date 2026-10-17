@@ -10,6 +10,7 @@ pub mod error;
 pub mod image;
 pub mod meta;
 pub mod start;
+pub mod stop;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -52,6 +53,12 @@ enum Commands {
         #[arg(long)]
         iso: Option<PathBuf>,
     },
+
+    /// Stop a running box
+    Stop {
+        /// Name of the box
+        name: String,
+    },
 }
 
 #[tokio::main]
@@ -78,6 +85,7 @@ async fn main() -> ExitCode {
             };
             start::start_box(&args).await
         }
+        Commands::Stop { name } => stop::stop_box(&name).await,
     };
 
     res.tap_err(|err| ui::error(err.to_string()))
