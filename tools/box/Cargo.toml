@@ -1,0 +1,22 @@
+[package]
+name = "rocky-box"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "rocky-box"
+path = "src/main.rs"
+
+[dependencies]
+rocky.workspace = true
+snafu.workspace = true
+clap.workspace = true
+tap.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+libc.workspace = true
+tar.workspace = true
+flate2.workspace = true
+serde.workspace = true
+serde_json.workspace = true

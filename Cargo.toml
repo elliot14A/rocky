@@ -1,9 +1,15 @@
-[package]
-name = "rocky"
+[workspace]
+members = [
+    ".",
+    "tools/box",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[workspace.dependencies]
+rocky = { path = "." }
 snafu = "0.9.2"
 clap = { version = "4.6.7", features = ["derive", "cargo"] }
 tap = "1.0.1"
@@ -14,3 +20,25 @@ tempfile = "3.17"
 indicatif = "0.17"
 rnix = "0.14.0"
 rowan = "0.16.1"
+libc = "0.2"
+tar = "0.4"
+flate2 = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[package]
+name = "rocky"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+snafu.workspace = true
+clap.workspace = true
+tap.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+indicatif.workspace = true
+rnix.workspace = true
+rowan.workspace = true
