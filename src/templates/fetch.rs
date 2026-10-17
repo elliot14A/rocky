@@ -23,13 +23,26 @@ async fn fetch_git_path(
     fs::ensure_dir(target)?;
 
     if let Ok(manifest_dir) = std::env::var("CARGO_MANIFEST_DIR") {
-        let local_src = Path::new(&manifest_dir).join(rel_path);
+        let manifest_path = Path::new(&manifest_dir);
+        let local_src = manifest_path.join(rel_path);
         if local_src.exists() {
             fs::copy_dir_all(&local_src, target)?;
             if format {
                 nix::fmt([target.as_os_str()]).await?;
             }
             return Ok(());
+        }
+
+        if let Some(parent) = Path::new(rel_path).parent() {
+            let category_dir = manifest_path.join(parent);
+            if category_dir.is_dir() {
+                return NotFoundSnafu {
+                    kind,
+                    name: name.to_string(),
+                    path: local_src,
+                }
+                .fail();
+            }
         }
     }
 
