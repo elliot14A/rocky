@@ -48,6 +48,7 @@
               agenix.packages.${system}.default
               pkgs.nixos-anywhere
               pkgs.nixfmt
+              (if pkgs.stdenv.isLinux then pkgs.qemu_kvm else pkgs.qemu)
             ];
           };
         }
