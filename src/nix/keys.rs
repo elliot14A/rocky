@@ -221,6 +221,23 @@ pub async fn register_host_key(
     })
 }
 
+pub fn extract_public_keys(content: &str, path: &Path) -> Result<Vec<String>> {
+    let root_set = parse_root_attr_set(content, path)?;
+    let mut keys = Vec::new();
+
+    for entry in root_set.attrpath_values() {
+        if let Some(ast::Expr::Str(s)) = entry.value() {
+            let text = s.to_string();
+            let clean = text.trim().trim_matches('"').trim();
+            if is_valid_public_key(clean) {
+                keys.push(clean.to_string());
+            }
+        }
+    }
+
+    Ok(keys)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -389,5 +406,19 @@ in
 
         let content = std::fs::read_to_string(&keys_path).unwrap();
         assert!(content.contains(r#""node-01" = "ssh-ed25519 AAA1";"#));
+    }
+
+    #[test]
+    fn test_extract_public_keys() {
+        let content = r#"{
+  alice = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI alice@laptop";
+  bob = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC bob@work";
+  invalid = "not-a-key";
+}
+"#;
+        let keys = extract_public_keys(content, Path::new("keys.nix")).unwrap();
+        assert_eq!(keys.len(), 2);
+        assert!(keys[0].starts_with("ssh-ed25519"));
+        assert!(keys[1].starts_with("ssh-rsa"));
     }
 }

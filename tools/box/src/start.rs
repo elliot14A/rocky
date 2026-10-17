@@ -21,9 +21,10 @@ pub struct StartArgs {
     pub name: String,
     pub port: u16,
     pub disk_size_gb: u64,
-    pub installed: bool,
+    pub rescue: bool,
     pub detach: bool,
     pub iso: Option<PathBuf>,
+    pub ssh_key: Option<PathBuf>,
 }
 
 pub fn boxes_dir() -> Result<PathBuf> {
@@ -45,15 +46,50 @@ pub fn box_dir(name: &str) -> Result<PathBuf> {
     boxes_dir().map(|dir| dir.join(name))
 }
 
+pub fn is_disk_installed(disk_path: &Path) -> Result<bool> {
+    if !disk_path.exists() {
+        return Ok(false);
+    }
+
+    let mut file = match File::open(disk_path) {
+        Ok(f) => f,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => {
+            return Err(IoSnafu {
+                path: disk_path.to_path_buf(),
+            }
+            .into_error(e))
+        }
+    };
+
+    use std::io::Read;
+    let mut buf = [0u8; 1024];
+    let mut total_read = 0;
+    while total_read < buf.len() {
+        match file.read(&mut buf[total_read..]) {
+            Ok(0) => break,
+            Ok(n) => total_read += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => {
+                return Err(IoSnafu {
+                    path: disk_path.to_path_buf(),
+                }
+                .into_error(e))
+            }
+        }
+    }
+    if total_read < 512 {
+        return Ok(false);
+    }
+
+    let is_mbr = buf[510] == 0x55 && buf[511] == 0xaa;
+    let is_gpt = total_read >= 520 && &buf[512..520] == b"EFI PART";
+
+    Ok(is_mbr || is_gpt)
+}
+
 pub fn is_pid_alive(pid: u32) -> bool {
-    #[cfg(unix)]
-    {
-        unsafe { libc::kill(pid as i32, 0) == 0 }
-    }
-    #[cfg(not(unix))]
-    {
-        false
-    }
+    unsafe { libc::kill(pid as i32, 0) == 0 }
 }
 
 pub fn read_active_pid(pid_file: &Path) -> Result<Option<u32>> {
@@ -99,7 +135,6 @@ pub fn check_port_available(port: u16) -> Result<()> {
         .tap_err(|_| tracing::warn!(port = port, "port is already bound"))
 }
 
-#[cfg(unix)]
 pub fn check_available_space(dir: &Path, required_bytes: u64) -> Result<()> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
@@ -139,11 +174,6 @@ pub fn check_available_space(dir: &Path, required_bytes: u64) -> Result<()> {
         "disk space check passed"
     );
 
-    Ok(())
-}
-
-#[cfg(not(unix))]
-pub fn check_available_space(_dir: &Path, _required_bytes: u64) -> Result<()> {
     Ok(())
 }
 
@@ -208,11 +238,9 @@ pub fn build_qemu_args(
         }
     }
 
-    // VirtIO primary hard drive
     args.push("-drive".to_string());
     args.push(format!("file={},format=raw,if=virtio", disk_path.display()));
 
-    // User-mode networking strictly forwarding 127.0.0.1 host port to guest SSH
     args.push("-nic".to_string());
     args.push(format!(
         "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:{port}-:22"
@@ -224,7 +252,7 @@ pub fn build_qemu_args(
         args.push("-cdrom".to_string());
         args.push(iso.display().to_string());
         args.push("-boot".to_string());
-        args.push("d".to_string());
+        args.push("order=cd,once=d".to_string());
 
         if let Some(seed) = seed_dir {
             args.push("-drive".to_string());
@@ -272,13 +300,22 @@ pub async fn start_box(args: &StartArgs) -> Result<()> {
     let disk_path = b_dir.join("disk.raw");
     ensure_disk(&disk_path, args.disk_size_gb)?;
 
-    let (iso_path, seed_dir) = if args.installed {
-        (None, None)
+    let is_installed = !args.rescue && is_disk_installed(&disk_path)?;
+
+    let (iso_path, seed_dir, identity_path) = if is_installed {
+        (None, None, None)
     } else {
         let iso = image::ensure_alpine_iso(args.iso.as_deref()).await?;
         let seed = b_dir.join("seed");
-        image::create_seed_apkovl(&seed)?;
-        (Some(iso), Some(seed))
+        let ident = image::create_seed_apkovl(
+            &seed,
+            &b_dir,
+            &args.name,
+            args.port,
+            args.ssh_key.as_deref(),
+        )
+        .await?;
+        (Some(iso), Some(seed), ident)
     };
 
     let qemu_args = build_qemu_args(
@@ -315,12 +352,17 @@ pub async fn start_box(args: &StartArgs) -> Result<()> {
         };
         meta::save(&b_dir.join("meta.json"), &meta)?;
 
+        let ssh_cmd = match &identity_path {
+            Some(key) => format!("ssh -i {} root@127.0.0.1 -p {}", key.display(), args.port),
+            None => format!("ssh root@127.0.0.1 -p {}", args.port),
+        };
+
         ui::success(format!(
             "Started box '{}' in background (PID: {})",
             args.name, pid
         ));
         ui::next_steps(&[
-            format!("Connect: ssh root@127.0.0.1 -p {}", args.port),
+            format!("Connect: {ssh_cmd}"),
             format!(
                 "Deploy:  rocky up <env> --target {}=127.0.0.1:{}",
                 args.name, args.port
@@ -339,6 +381,18 @@ pub async fn start_box(args: &StartArgs) -> Result<()> {
             "Starting box '{}' in foreground on port {} (Ctrl+A then X to exit QEMU)...",
             args.name, args.port
         ));
+        let ssh_cmd = match &identity_path {
+            Some(key) => format!("ssh -i {} root@127.0.0.1 -p {}", key.display(), args.port),
+            None => format!("ssh root@127.0.0.1 -p {}", args.port),
+        };
+
+        if is_installed {
+            ui::info("Booting installed system from disk...");
+        } else {
+            ui::info("Booting Alpine rescue environment in RAM (ready in ~5-10s)...");
+            ui::info("Console will display login prompt once initialization completes.");
+            ui::info(format!("Connect via SSH: {ssh_cmd}"));
+        }
 
         tracing::info!(
             name = %args.name,
@@ -429,7 +483,6 @@ mod tests {
         let _temp = tempdir().unwrap();
         let name = "phantom-box";
         let b_dir = box_dir(name).unwrap();
-        // Must NOT create the directory as a side effect
         if let Some(parent) = b_dir.parent() {
             let target = parent.join(name);
             assert!(!target.exists());
@@ -439,14 +492,34 @@ mod tests {
     #[test]
     fn test_check_available_space_success() {
         let temp = tempdir().unwrap();
-        // Checking for 1 KB should succeed on any valid filesystem
         assert!(check_available_space(temp.path(), 1024).is_ok());
     }
 
     #[test]
     fn test_check_available_space_insufficient() {
         let temp = tempdir().unwrap();
-        // Checking for u64::MAX bytes will always exceed available space
         assert!(check_available_space(temp.path(), u64::MAX).is_err());
+    }
+
+    #[test]
+    fn test_is_disk_installed() {
+        let temp = tempdir().unwrap();
+        let disk = temp.path().join("disk.raw");
+
+        assert!(!is_disk_installed(&disk).unwrap());
+
+        std::fs::write(&disk, vec![0u8; 1024]).unwrap();
+        assert!(!is_disk_installed(&disk).unwrap());
+
+        let mut mbr = vec![0u8; 1024];
+        mbr[510] = 0x55;
+        mbr[511] = 0xaa;
+        std::fs::write(&disk, &mbr).unwrap();
+        assert!(is_disk_installed(&disk).unwrap());
+
+        let mut gpt = vec![0u8; 1024];
+        gpt[512..520].copy_from_slice(b"EFI PART");
+        std::fs::write(&disk, &gpt).unwrap();
+        assert!(is_disk_installed(&disk).unwrap());
     }
 }

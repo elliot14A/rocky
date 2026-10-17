@@ -25,7 +25,6 @@ pub async fn stop_box(name: &str) -> Result<()> {
     ui::info(format!("Stopping box '{name}' (PID: {pid})..."));
     tracing::info!(name = %name, pid = pid, "stopping box");
 
-    #[cfg(unix)]
     unsafe {
         libc::kill(pid as i32, libc::SIGTERM);
     }
@@ -39,8 +38,6 @@ pub async fn stop_box(name: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Force kill if didn't terminate after 5 seconds
-    #[cfg(unix)]
     unsafe {
         libc::kill(pid as i32, libc::SIGKILL);
     }

@@ -1,3 +1,6 @@
+#[cfg(not(unix))]
+compile_error!("rocky-box requires a Unix operating system.");
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -30,47 +33,37 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Start a local virtual box
     Start {
-        /// Name of the box (e.g. node-01)
         name: String,
 
-        /// Forwarded SSH port on host (default: 2222)
         #[arg(short, long, default_value_t = 2222)]
         port: u16,
 
-        /// Disk size in GB (default: 10)
         #[arg(long, default_value_t = 10)]
         disk_size: u64,
 
-        /// Boot directly from installed disk (skip rescue ISO)
         #[arg(long)]
-        installed: bool,
+        rescue: bool,
 
-        /// Run QEMU in background (detached)
+        #[arg(long)]
+        ssh_key: Option<PathBuf>,
+
         #[arg(short, long)]
         detach: bool,
 
-        /// Custom ISO path (defaults to Alpine virt ISO)
         #[arg(long)]
         iso: Option<PathBuf>,
     },
 
-    /// Stop a running box
     Stop {
-        /// Name of the box
         name: String,
     },
 
-    /// List all local boxes and their status
     List,
 
-    /// Manually clean box disks and state files
     Clean {
-        /// Name of the box to clean
         name: Option<String>,
 
-        /// Clean all boxes
         #[arg(long, conflicts_with = "name")]
         all: bool,
     },
@@ -86,7 +79,8 @@ async fn main() -> ExitCode {
             name,
             port,
             disk_size,
-            installed,
+            rescue,
+            ssh_key,
             detach,
             iso,
         } => {
@@ -94,9 +88,10 @@ async fn main() -> ExitCode {
                 name,
                 port,
                 disk_size_gb: disk_size,
-                installed,
+                rescue,
                 detach,
                 iso,
+                ssh_key,
             };
             start::start_box(&args).await
         }
