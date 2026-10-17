@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use snafu::ensure;
+use tap::prelude::*;
 
 use crate::error::{Kind, NotADirectorySnafu, NotFoundSnafu, Result};
 use crate::process::exec;
@@ -41,41 +42,20 @@ pub async fn rekey(secrets_dir: &Path, identity: Option<&Path>) -> Result<()> {
         }
     );
 
-    let abs_identity = match identity {
-        Some(id) => {
-            ensure!(
-                id.is_file(),
-                NotFoundSnafu {
-                    kind: Kind::Secret,
-                    name: id.display().to_string(),
-                    path: id.to_path_buf(),
-                }
-            );
-            let abs = std::fs::canonicalize(id).unwrap_or_else(|_| {
-                if id.is_relative() {
-                    std::env::current_dir()
-                        .map(|cwd| cwd.join(id))
-                        .unwrap_or_else(|_| id.to_path_buf())
-                } else {
-                    id.to_path_buf()
-                }
-            });
-            Some(abs)
-        }
-        None => None,
-    };
+    let abs_identity = crate::ssh::canonicalize_identity(identity)?;
 
     let args = build_rekey_args(abs_identity.as_deref());
 
-    exec("agenix", &args, Some(secrets_dir)).await?;
-
-    tracing::debug!(
-        secrets_dir = %secrets_dir.display(),
-        identity = ?identity.map(|p| p.display()),
-        "rekeyed agenix secrets"
-    );
-
-    Ok(())
+    exec("agenix", &args, Some(secrets_dir))
+        .await
+        .map(|_| ())
+        .tap_ok(|_| {
+            tracing::debug!(
+                secrets_dir = %secrets_dir.display(),
+                identity = ?identity.map(|p| p.display()),
+                "rekeyed agenix secrets"
+            );
+        })
 }
 
 #[cfg(test)]

@@ -54,6 +54,7 @@ where
                 command: display_cmd,
                 status,
                 stderr,
+                log_path: None,
             }
             .fail(),
             None => CommandSignaledSnafu {

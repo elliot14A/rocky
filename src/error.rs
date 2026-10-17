@@ -29,11 +29,15 @@ pub enum RockyError {
         source: std::io::Error,
     },
 
-    #[snafu(display("Command '{command}' failed with exit code {status}: {stderr}"))]
+    #[snafu(display(
+        "Command '{command}' failed with exit code {status}{}: {stderr}",
+        log_path.as_ref().map(|p| format!(" (see log: {})", p.display())).unwrap_or_default()
+    ))]
     CommandExecution {
         command: String,
         status: i32,
         stderr: String,
+        log_path: Option<PathBuf>,
     },
 
     #[snafu(display("Command '{command}' was terminated by signal"))]
@@ -100,10 +104,25 @@ mod tests {
             command: "nix build".to_string(),
             status: 1,
             stderr: "syntax error".to_string(),
+            log_path: None,
         };
         assert_eq!(
             err.to_string(),
             "Command 'nix build' failed with exit code 1: syntax error"
+        );
+    }
+
+    #[test]
+    fn test_command_execution_with_log_path_display() {
+        let err = RockyError::CommandExecution {
+            command: "nixos-anywhere".to_string(),
+            status: 1,
+            stderr: "disk error".to_string(),
+            log_path: Some(PathBuf::from("/var/log/install.log")),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Command 'nixos-anywhere' failed with exit code 1 (see log: /var/log/install.log): disk error"
         );
     }
 
