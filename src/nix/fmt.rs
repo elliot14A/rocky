@@ -1,5 +1,7 @@
 use std::ffi::OsStr;
 
+use tap::prelude::*;
+
 use crate::error::Result;
 use crate::process;
 
@@ -17,9 +19,9 @@ where
         return Ok(());
     }
 
-    if let Err(err) = process::exec("nixfmt", &files, None).await {
-        tracing::warn!(%err, "nixfmt was not found or failed; skipped formatting");
-    }
+    let _ = process::exec("nixfmt", &files, None)
+        .await
+        .tap_err(|err| tracing::warn!(%err, "nixfmt was not found or failed; skipped formatting"));
 
     Ok(())
 }

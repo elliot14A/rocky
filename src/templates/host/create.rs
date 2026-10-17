@@ -139,7 +139,7 @@ pub async fn create(
 
     rollback.commit();
 
-    tracing::info!(host = %name, env = %env_name, provider = %provider, "scaffolded host");
-
-    Ok(env_name)
+    Ok(env_name).tap_ok(|env| {
+        tracing::info!(host = %name, env = %env, provider = %provider, "scaffolded host");
+    })
 }

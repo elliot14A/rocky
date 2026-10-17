@@ -1,3 +1,4 @@
+use snafu::ensure;
 use std::path::Path;
 
 use crate::error::{Kind, NotFoundSnafu, Result};
@@ -21,14 +22,14 @@ pub async fn eval_default_provider(fleet_path: &Path) -> Result<String> {
 
     let raw = eval(&expr).await?;
     let trimmed = raw.trim().trim_matches('"').trim();
-    if trimmed == "null" || trimmed.is_empty() {
-        return NotFoundSnafu {
+    ensure!(
+        trimmed != "null" && !trimmed.is_empty(),
+        NotFoundSnafu {
             kind: Kind::Provider,
             name: "defaultProvider".to_string(),
             path: fleet_path.join("flake.nix"),
         }
-        .fail();
-    }
+    );
 
     Ok(trimmed.to_string())
 }

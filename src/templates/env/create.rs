@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use tap::prelude::*;
+
 use crate::error::{AlreadyExistsSnafu, Kind, Result};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix};
@@ -99,7 +101,7 @@ pub async fn create(name: &str, fleet_root: &Path) -> Result<()> {
 
     rollback.commit();
 
-    tracing::info!(env = %name, "scaffolded environment");
-
-    Ok(())
+    Ok(()).tap_ok(|_| {
+        tracing::info!(env = %name, "scaffolded environment");
+    })
 }

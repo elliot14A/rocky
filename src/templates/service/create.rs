@@ -104,9 +104,9 @@ pub async fn create(name: &str, fleet_root: &Path) -> Result<()> {
 
     rollback.commit();
 
-    tracing::info!(service = %name, "scaffolded service");
-
-    Ok(())
+    Ok(()).tap_ok(|_| {
+        tracing::info!(service = %name, "scaffolded service");
+    })
 }
 
 #[cfg(test)]

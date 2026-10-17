@@ -1,6 +1,7 @@
 use std::process::ExitCode;
 
 use clap::Parser;
+use tap::prelude::*;
 
 use rocky::commands::{self, Command};
 use rocky::process::log;
@@ -22,10 +23,9 @@ async fn main() -> ExitCode {
 
     log::init(cli.verbose);
 
-    if let Err(err) = commands::execute(cli.command).await {
-        tracing::error!(%err, "command failed");
-        return ExitCode::FAILURE;
-    }
-
-    ExitCode::SUCCESS
+    commands::execute(cli.command)
+        .await
+        .tap_err(|err| tracing::error!(%err, "command failed"))
+        .map(|_| ExitCode::SUCCESS)
+        .unwrap_or(ExitCode::FAILURE)
 }
