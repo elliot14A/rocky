@@ -65,6 +65,12 @@ pub enum RockyError {
 
     #[snafu(display("Failed to parse Nix file at {}: {reason}", path.display()))]
     NixParse { path: PathBuf, reason: String },
+
+    #[snafu(display("Failed to parse target '{raw}': {reason}"))]
+    TargetParse { raw: String, reason: String },
+
+    #[snafu(display("Missing target IP address for host '{host}'"))]
+    MissingTargetIp { host: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +200,29 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Failed to parse Nix file at environments/prod/fleet.nix: syntax error"
+        );
+    }
+
+    #[test]
+    fn test_target_parse_display() {
+        let err = RockyError::TargetParse {
+            raw: "node-01".to_string(),
+            reason: "expected format HOST=IP[:PORT]".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Failed to parse target 'node-01': expected format HOST=IP[:PORT]"
+        );
+    }
+
+    #[test]
+    fn test_missing_target_ip_display() {
+        let err = RockyError::MissingTargetIp {
+            host: "node-01".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Missing target IP address for host 'node-01'"
         );
     }
 }

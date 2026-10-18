@@ -1,5 +1,6 @@
 pub mod init;
 pub mod new;
+pub mod up;
 
 use clap::Subcommand;
 
