@@ -17,52 +17,8 @@ pub struct HostDiff {
 use super::ast::{attr_to_name, parse_root_attr_set, unwrap_attr_set};
 
 fn extract_fleet_hosts(fleet_src: &str) -> Result<BTreeSet<String>> {
-    let root_set = parse_root_attr_set(fleet_src, Path::new("fleet.nix"))?;
-
-    let mut hosts = BTreeSet::new();
-
-    for entry in root_set.attrpath_values() {
-        let Some(attrpath) = entry.attrpath() else {
-            continue;
-        };
-
-        let mut attrs = attrpath.attrs();
-        let Some(first_attr) = attrs.next() else {
-            continue;
-        };
-
-        if attr_to_name(&first_attr).as_deref() != Some("hosts") {
-            continue;
-        }
-
-        if let Some(second_attr) = attrs.next() {
-            if let Some(name) = attr_to_name(&second_attr) {
-                hosts.insert(name);
-            }
-            continue;
-        }
-
-        let Some(val_expr) = entry.value() else {
-            continue;
-        };
-
-        if let Some(hosts_set) = unwrap_attr_set(val_expr) {
-            for inner_entry in hosts_set.attrpath_values() {
-                let Some(inner_path) = inner_entry.attrpath() else {
-                    continue;
-                };
-                let mut inner_attrs = inner_path.attrs();
-                let Some(host_attr) = inner_attrs.next() else {
-                    continue;
-                };
-                if let Some(name) = attr_to_name(&host_attr) {
-                    hosts.insert(name);
-                }
-            }
-        }
-    }
-
-    Ok(hosts)
+    super::fleet::extract_host_services(fleet_src, Path::new("fleet.nix"))
+        .map(|map| map.into_keys().collect())
 }
 
 fn extract_key_hosts(keys_src: &str) -> Result<BTreeSet<String>> {

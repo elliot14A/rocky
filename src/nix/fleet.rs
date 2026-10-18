@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rnix::ast::{self, HasEntry};
@@ -173,6 +174,171 @@ pub async fn register_host(fleet_nix_path: &Path, host_name: &str) -> Result<()>
     crate::fs::write_file(fleet_nix_path, &updated)?;
     super::fmt([fleet_nix_path]).await?;
     Ok(())
+}
+
+fn extract_services_from_expr(expr: ast::Expr) -> Vec<String> {
+    let mut current = expr;
+    while let ast::Expr::Paren(paren) = current {
+        if let Some(inner) = paren.expr() {
+            current = inner;
+        } else {
+            return Vec::new();
+        }
+    }
+
+    let mut services = Vec::new();
+    match current {
+        ast::Expr::List(list) => {
+            for item in list.items() {
+                match item {
+                    ast::Expr::Str(s) => {
+                        let raw = s.to_string();
+                        let clean = raw.trim_matches('\'').trim_matches('"').trim();
+                        if !clean.is_empty() {
+                            services.push(clean.to_string());
+                        }
+                    }
+                    ast::Expr::Ident(ident) => {
+                        let name = ident.to_string().trim().to_string();
+                        if !name.is_empty() {
+                            services.push(name);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        ast::Expr::AttrSet(attr_set) => {
+            for entry in attr_set.attrpath_values() {
+                if let Some(attrpath) = entry.attrpath() {
+                    if let Some(first) = attrpath.attrs().next() {
+                        if let Some(name) = attr_to_name(&first) {
+                            services.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    services
+}
+
+fn extract_services_from_host_set(host_set: &ast::AttrSet) -> Vec<String> {
+    let mut services = Vec::new();
+    for entry in host_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+        let mut attrs = attrpath.attrs();
+        let Some(first_attr) = attrs.next() else {
+            continue;
+        };
+        if attr_to_name(&first_attr).as_deref() != Some("services") {
+            continue;
+        }
+
+        if let Some(second_attr) = attrs.next() {
+            if let Some(name) = attr_to_name(&second_attr) {
+                services.push(name);
+            }
+            continue;
+        }
+
+        if let Some(val_expr) = entry.value() {
+            services.extend(extract_services_from_expr(val_expr));
+        }
+    }
+    services
+}
+
+pub fn extract_host_services(fleet_src: &str, path: &Path) -> Result<HashMap<String, Vec<String>>> {
+    let root_set = parse_root_attr_set(fleet_src, path)?;
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for entry in root_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+
+        let mut attrs = attrpath.attrs();
+        let Some(first_attr) = attrs.next() else {
+            continue;
+        };
+
+        if attr_to_name(&first_attr).as_deref() != Some("hosts") {
+            continue;
+        }
+
+        if let Some(second_attr) = attrs.next() {
+            let Some(host_name) = attr_to_name(&second_attr) else {
+                continue;
+            };
+
+            let host_services = map.entry(host_name.clone()).or_default();
+
+            if let Some(third_attr) = attrs.next() {
+                if attr_to_name(&third_attr).as_deref() == Some("services") {
+                    if let Some(fourth_attr) = attrs.next() {
+                        if let Some(svc_name) = attr_to_name(&fourth_attr) {
+                            host_services.push(svc_name);
+                        }
+                    } else if let Some(val_expr) = entry.value() {
+                        host_services.extend(extract_services_from_expr(val_expr));
+                    }
+                }
+            } else if let Some(val_expr) = entry.value() {
+                if let Some(host_set) = unwrap_attr_set(val_expr) {
+                    host_services.extend(extract_services_from_host_set(&host_set));
+                }
+            }
+            continue;
+        }
+
+        let Some(val_expr) = entry.value() else {
+            continue;
+        };
+
+        if let Some(hosts_set) = unwrap_attr_set(val_expr) {
+            for inner_entry in hosts_set.attrpath_values() {
+                let Some(inner_path) = inner_entry.attrpath() else {
+                    continue;
+                };
+                let mut inner_attrs = inner_path.attrs();
+                let Some(host_attr) = inner_attrs.next() else {
+                    continue;
+                };
+                let Some(host_name) = attr_to_name(&host_attr) else {
+                    continue;
+                };
+
+                let host_services = map.entry(host_name.clone()).or_default();
+
+                if let Some(second_inner) = inner_attrs.next() {
+                    if attr_to_name(&second_inner).as_deref() == Some("services") {
+                        if let Some(third_inner) = inner_attrs.next() {
+                            if let Some(svc_name) = attr_to_name(&third_inner) {
+                                host_services.push(svc_name);
+                            }
+                        } else if let Some(inner_val) = inner_entry.value() {
+                            host_services.extend(extract_services_from_expr(inner_val));
+                        }
+                    }
+                } else if let Some(inner_val) = inner_entry.value() {
+                    if let Some(host_set) = unwrap_attr_set(inner_val) {
+                        host_services.extend(extract_services_from_host_set(&host_set));
+                    }
+                }
+            }
+        }
+    }
+
+    for services in map.values_mut() {
+        let mut seen = std::collections::HashSet::new();
+        services.retain(|s| seen.insert(s.clone()));
+    }
+
+    Ok(map)
 }
 
 #[cfg(test)]
@@ -423,6 +589,128 @@ mod tests {
     fn test_insert_host_entry_rejects_invalid_name() {
         let input = "{\n  hosts = {};\n}\n";
         let res = insert_host_entry(input, "../evil", Path::new("fleet.nix"));
+        assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_insert_host_entry_preserves_dotted_syntax_comments() {
+        let input = r#"# Dotted fleet definition
+{
+  # Host 001 definition
+  hosts."001" = {
+    services = [ "caddy" ];
+  };
+  # End of hosts list
+}
+"#;
+        let res = insert_host_entry(input, "002", Path::new("fleet.nix")).unwrap();
+        assert!(res.contains("# Dotted fleet definition"));
+        assert!(res.contains("# Host 001 definition"));
+        assert!(res.contains("# End of hosts list"));
+        assert!(res.contains(r#"hosts."001" = {"#));
+        assert!(res.contains(r#"hosts."002" = {"#));
+
+        let parse = rnix::Root::parse(&res);
+        assert!(parse.errors().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_register_host_preserves_comments_and_custom_fields() {
+        let dir = tempdir().unwrap();
+        let fleet_path = dir.path().join("fleet.nix");
+        let initial_content = r#"# Fleet configuration header
+{
+  # General fleet settings
+  settings = {
+    domain = "prod.rocky.internal";
+  };
+
+  # Host declarations
+  hosts = {
+    # Primary database host
+    "db-01" = {
+      services = [ "postgres" ]; # relational storage
+    };
+    # Trailing comment inside hosts set
+  };
+
+  # Custom metadata section
+  meta = {
+    team = "platform";
+  };
+}
+# End of file comment
+"#;
+        std::fs::write(&fleet_path, initial_content).unwrap();
+
+        let res = register_host(&fleet_path, "api-01").await;
+        assert!(res.is_ok(), "register_host failed: {:?}", res);
+
+        let updated = std::fs::read_to_string(&fleet_path).unwrap();
+
+        // Verify all comments are preserved
+        assert!(updated.contains("# Fleet configuration header"));
+        assert!(updated.contains("# General fleet settings"));
+        assert!(updated.contains("# Host declarations"));
+        assert!(updated.contains("# Primary database host"));
+        assert!(updated.contains("# relational storage"));
+        assert!(updated.contains("# Trailing comment inside hosts set"));
+        assert!(updated.contains("# Custom metadata section"));
+        assert!(updated.contains("# End of file comment"));
+
+        // Verify custom attributes and both hosts are present
+        assert!(updated.contains("prod.rocky.internal"));
+        assert!(updated.contains("platform"));
+        assert!(updated.contains(r#""db-01""#));
+        assert!(updated.contains(r#""api-01""#));
+
+        // Output must parse cleanly as valid Nix
+        let parse = rnix::Root::parse(&updated);
+        assert!(parse.errors().is_empty());
+    }
+
+    #[test]
+    fn test_extract_host_services_various_formats() {
+        let fleet = r#"{
+  hosts = {
+    node-01 = {
+      services = [ "caddy" "api" ];
+    };
+    node-02 = {
+      services = {
+        postgres = {};
+        redis = {};
+      };
+    };
+    node-03 = {
+      services = [ ];
+    };
+    node-04 = {
+      services.monitoring = {};
+    };
+    node-05 = {};
+  };
+  hosts."node-06" = {
+    services = [ "worker" "caddy" "worker" ];
+  };
+  hosts."node-07".services = [ "gateway" ];
+}
+"#;
+        let map = extract_host_services(fleet, Path::new("fleet.nix")).unwrap();
+        assert_eq!(map.get("node-01").unwrap(), &vec!["caddy", "api"]);
+        assert_eq!(map.get("node-02").unwrap(), &vec!["postgres", "redis"]);
+        assert!(map.get("node-03").unwrap().is_empty());
+        assert_eq!(map.get("node-04").unwrap(), &vec!["monitoring"]);
+        assert!(map.get("node-05").unwrap().is_empty());
+        // Deduplicated preserving order
+        assert_eq!(map.get("node-06").unwrap(), &vec!["worker", "caddy"]);
+        assert_eq!(map.get("node-07").unwrap(), &vec!["gateway"]);
+    }
+
+    #[test]
+    fn test_extract_host_services_syntax_error() {
+        let fleet = "{ hosts = { bad = ; }; }";
+        let res = extract_host_services(fleet, Path::new("fleet.nix"));
         assert!(res.is_err());
     }
 }
