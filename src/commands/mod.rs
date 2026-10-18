@@ -13,11 +13,15 @@ pub enum Command {
 
     /// Scaffold a new entity (host, env, service)
     New(new::NewArgs),
+
+    /// Deploy and install fleet hosts
+    Up(up::UpArgs),
 }
 
 pub async fn execute(command: Command) -> Result<()> {
     match command {
         Command::Init(args) => init::run(args).await,
         Command::New(args) => new::run(args).await,
+        Command::Up(args) => up::run(args, None).await,
     }
 }
