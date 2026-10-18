@@ -36,6 +36,9 @@ pub struct UpArgs {
     #[arg(short, long, help = "Skip interactive confirmation")]
     pub yes: bool,
 
+    #[arg(long, help = "Disable interactive prompts")]
+    pub non_interactive: bool,
+
     #[arg(
         short,
         long,
@@ -312,7 +315,11 @@ async fn execute(args: UpArgs, fleet_root: &Path) -> Result<()> {
         }
     );
 
-    let interactive = io::stdin().is_terminal() && io::stdout().is_terminal();
+    let interactive = !args.yes
+        && !args.non_interactive
+        && std::env::var("ROCKY_NON_INTERACTIVE").is_err()
+        && io::stdin().is_terminal()
+        && io::stdout().is_terminal();
 
     let diff = diff_env(&env_dir)?;
     let pending_hosts = diff.pending_install.clone();
