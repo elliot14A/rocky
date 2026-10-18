@@ -18,6 +18,7 @@ use crate::error::{
 pub struct HostDeploy {
     pub name: String,
     pub hostname: Option<String>,
+    pub port: Option<u16>,
 }
 
 #[derive(Debug)]
@@ -42,9 +43,21 @@ pub fn build_deploy_args(
         args.push(hostname.clone());
     }
 
+    let mut ssh_opts = Vec::new();
+
+    if let Some(port) = host.port {
+        if port != 22 {
+            ssh_opts.push(format!("-p {port}"));
+        }
+    }
+
     if let Some(id) = identity {
+        ssh_opts.push(format!("-i \"{}\"", id.display()));
+    }
+
+    if !ssh_opts.is_empty() {
         args.push("--ssh-opts".to_string());
-        args.push(format!("-i \"{}\"", id.display()));
+        args.push(ssh_opts.join(" "));
     }
 
     args
@@ -116,6 +129,7 @@ pub async fn deploy_single(
     let host = HostDeploy {
         name: target.to_string(),
         hostname: hostname.map(ToString::to_string),
+        port: None,
     };
     let log_path = crate::process::log::host_log_path("deploy", target)?;
     deploy_host(&host, fleet_root, identity, &log_path).await
@@ -264,6 +278,7 @@ mod tests {
         let host = HostDeploy {
             name: "web-01".to_string(),
             hostname: None,
+            port: None,
         };
 
         let args = build_deploy_args(&host, Path::new("."), None);
@@ -275,6 +290,7 @@ mod tests {
         let host = HostDeploy {
             name: "db-01".to_string(),
             hostname: Some("192.168.1.100".to_string()),
+            port: None,
         };
         let identity = Path::new("/keys/id_ed25519");
 
@@ -291,11 +307,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_build_deploy_args_with_custom_port() {
+        let host = HostDeploy {
+            name: "edge-01".to_string(),
+            hostname: Some("10.0.0.1".to_string()),
+            port: Some(2222),
+        };
+
+        let args = build_deploy_args(&host, Path::new("/fleet"), None);
+        assert_eq!(
+            args,
+            vec![
+                "/fleet#edge-01",
+                "--hostname",
+                "10.0.0.1",
+                "--ssh-opts",
+                "-p 2222"
+            ]
+        );
+    }
+
     #[tokio::test]
     async fn test_deploy_host_rejects_missing_identity() {
         let host = HostDeploy {
             name: "web-01".to_string(),
             hostname: None,
+            port: None,
         };
         let missing_key = Path::new("/nonexistent/key");
         let log = Path::new("/tmp/deploy-test.log");
