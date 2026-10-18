@@ -441,3 +441,52 @@ async fn test_new_host_rejects_missing_fleet_nix() {
     // Host dir should not be created
     assert!(!env_dir.join("hosts").join("node-01").exists());
 }
+
+#[tokio::test]
+async fn test_new_host_preserves_comments_and_custom_settings() {
+    let ws = common::TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let env_dir = fleet_path.join("environments").join("prod");
+    fs::create_dir_all(&env_dir).unwrap();
+
+    let initial_fleet = r#"# Fleet configuration for production
+{
+  # Custom fleet settings
+  settings = {
+    domain = "rocky.corp";
+  };
+
+  # Active fleet hosts
+  hosts = {
+    # Bastion host
+    "bastion-01" = {
+      services = [ "ssh" ];
+    };
+  };
+}
+"#;
+    fs::write(env_dir.join("fleet.nix"), initial_fleet).unwrap();
+
+    let args = HostArgs {
+        name: "worker-01".to_string(),
+        env: Some("prod".to_string()),
+        provider: Some("hetzner".to_string()),
+        partition: None,
+    };
+
+    let res = host::run(args, Some(&fleet_path)).await;
+    assert!(res.is_ok(), "host::run failed: {:?}", res);
+
+    let updated_fleet = fs::read_to_string(env_dir.join("fleet.nix")).unwrap();
+
+    // Verify comments remain intact
+    assert!(updated_fleet.contains("# Fleet configuration for production"));
+    assert!(updated_fleet.contains("# Custom fleet settings"));
+    assert!(updated_fleet.contains("# Active fleet hosts"));
+    assert!(updated_fleet.contains("# Bastion host"));
+
+    // Verify existing settings and both hosts are present
+    assert!(updated_fleet.contains("rocky.corp"));
+    assert!(updated_fleet.contains(r#""bastion-01""#));
+    assert!(updated_fleet.contains(r#""worker-01""#));
+}
