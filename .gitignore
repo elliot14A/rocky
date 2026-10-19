@@ -16,3 +16,11 @@ docs/plans/
 *.local.nix
 boxes.local.nix
 graphify-out/
+
+# Private keys and secret artifacts (never commit test secrets or keys to tool repo)
+*.key
+*.sec
+*.age
+id_ed25519*
+!id_ed25519*.pub
+extra-files/
