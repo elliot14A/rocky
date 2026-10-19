@@ -1,41 +1,14 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
 
+use common::{setup_env, setup_fleet, setup_fleet_bare, TestWorkspace};
 use rocky::commands::new::host::{self, HostArgs};
 use rocky::error::{Kind, RockyError};
 
-fn setup_fleet(ws: &common::TestWorkspace) -> PathBuf {
-    let fleet_path = ws.path.join("rocky");
-    fs::create_dir_all(&fleet_path).unwrap();
-    fs::write(
-        fleet_path.join("flake.nix"),
-        r#"{
-  description = "rocky test fleet";
-  outputs = inputs: {
-    rockyFleet = true;
-    config = {
-      defaultProvider = "hetzner";
-    };
-  };
-}
-"#,
-    )
-    .unwrap();
-    fleet_path
-}
-
-fn setup_env(fleet_path: &std::path::Path, env_name: &str) -> PathBuf {
-    let env_dir = fleet_path.join("environments").join(env_name);
-    fs::create_dir_all(&env_dir).unwrap();
-    fs::write(env_dir.join("fleet.nix"), "{\n  hosts = { };\n}\n").unwrap();
-    env_dir
-}
-
 #[tokio::test]
 async fn test_new_host_success_with_provider_and_env() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = setup_env(&fleet_path, "prod");
 
@@ -56,11 +29,15 @@ async fn test_new_host_success_with_provider_and_env() {
 
     let default_nix = fs::read_to_string(host_dir.join("default.nix")).unwrap();
     assert!(default_nix.contains("prod-web-01"));
+
+    let fleet_nix = fs::read_to_string(env_dir.join("fleet.nix")).unwrap();
+    assert!(fleet_nix.contains(r#""web-01" = {"#));
+    assert!(fleet_nix.contains(r#"services = [ ];"#));
 }
 
 #[tokio::test]
 async fn test_new_host_oracle_provider() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = setup_env(&fleet_path, "prod");
 
@@ -82,7 +59,7 @@ async fn test_new_host_oracle_provider() {
 
 #[tokio::test]
 async fn test_new_host_auto_selects_single_environment() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = setup_env(&fleet_path, "staging");
 
@@ -104,7 +81,7 @@ async fn test_new_host_auto_selects_single_environment() {
 
 #[tokio::test]
 async fn test_new_host_picks_first_environment_when_multiple_exist_and_none_specified() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env(&fleet_path, "prod");
     setup_env(&fleet_path, "staging");
@@ -131,7 +108,7 @@ async fn test_new_host_picks_first_environment_when_multiple_exist_and_none_spec
 
 #[tokio::test]
 async fn test_new_host_rejects_already_existing_host() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env(&fleet_path, "prod");
 
@@ -161,7 +138,7 @@ async fn test_new_host_rejects_already_existing_host() {
 
 #[tokio::test]
 async fn test_new_host_rejects_invalid_name() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env(&fleet_path, "prod");
 
@@ -184,7 +161,7 @@ async fn test_new_host_rejects_invalid_name() {
 
 #[tokio::test]
 async fn test_new_host_rejects_unsupported_provider() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env(&fleet_path, "prod");
 
@@ -207,7 +184,7 @@ async fn test_new_host_rejects_unsupported_provider() {
 
 #[tokio::test]
 async fn test_new_host_rejects_invalid_provider_name() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env(&fleet_path, "prod");
 
@@ -230,22 +207,9 @@ async fn test_new_host_rejects_invalid_provider_name() {
 
 #[tokio::test]
 async fn test_new_host_falls_back_to_default_when_provider_and_default_provider_absent() {
-    let ws = common::TestWorkspace::new();
-    let fleet_path = ws.path.join("rocky");
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet_bare(&ws);
     let env_dir = setup_env(&fleet_path, "prod");
-
-    // Create a flake.nix with rockyFleet = true, but without config.defaultProvider
-    fs::write(
-        fleet_path.join("flake.nix"),
-        r#"{
-  description = "rocky test";
-  outputs = inputs: {
-    rockyFleet = true;
-  };
-}
-"#,
-    )
-    .unwrap();
 
     let args = HostArgs {
         name: "srv-01".to_string(),
@@ -268,7 +232,7 @@ async fn test_new_host_falls_back_to_default_when_provider_and_default_provider_
 
 #[tokio::test]
 async fn test_new_host_auto_detects_default_provider_from_flake() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = ws.path.join("rocky");
     let env_dir = setup_env(&fleet_path, "prod");
 
@@ -306,7 +270,7 @@ async fn test_new_host_auto_detects_default_provider_from_flake() {
 
 #[tokio::test]
 async fn test_new_host_gvm_provider() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = setup_env(&fleet_path, "prod");
 
@@ -327,38 +291,8 @@ async fn test_new_host_gvm_provider() {
 }
 
 #[tokio::test]
-async fn test_new_host_registers_in_fleet_nix() {
-    let ws = common::TestWorkspace::new();
-    let fleet_path = setup_fleet(&ws);
-    let env_dir = setup_env(&fleet_path, "prod");
-
-    let initial_fleet_nix = r#"{
-  settings = {
-    domain = "prod.rocky.internal";
-  };
-  hosts = { };
-}
-"#;
-    fs::write(env_dir.join("fleet.nix"), initial_fleet_nix).unwrap();
-
-    let args = HostArgs {
-        name: "node-01".to_string(),
-        env: Some("prod".to_string()),
-        provider: Some("hetzner".to_string()),
-        partition: None,
-    };
-
-    let res = host::run(args, Some(&fleet_path)).await;
-    assert!(res.is_ok(), "host::run failed: {:?}", res);
-
-    let updated_fleet_nix = fs::read_to_string(env_dir.join("fleet.nix")).unwrap();
-    assert!(updated_fleet_nix.contains(r#""node-01" = {"#));
-    assert!(updated_fleet_nix.contains(r#"services = [ ];"#));
-}
-
-#[tokio::test]
 async fn test_new_host_rejects_host_already_declared_in_fleet_nix() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = setup_env(&fleet_path, "prod");
 
@@ -394,7 +328,7 @@ async fn test_new_host_rejects_host_already_declared_in_fleet_nix() {
 
 #[tokio::test]
 async fn test_new_host_with_partition_flag() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = setup_env(&fleet_path, "prod");
 
@@ -416,7 +350,7 @@ async fn test_new_host_with_partition_flag() {
 
 #[tokio::test]
 async fn test_new_host_rejects_missing_fleet_nix() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = fleet_path.join("environments").join("prod");
     fs::create_dir_all(&env_dir).unwrap();
@@ -444,7 +378,7 @@ async fn test_new_host_rejects_missing_fleet_nix() {
 
 #[tokio::test]
 async fn test_new_host_preserves_comments_and_custom_settings() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     let env_dir = fleet_path.join("environments").join("prod");
     fs::create_dir_all(&env_dir).unwrap();

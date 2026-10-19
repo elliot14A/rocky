@@ -1,35 +1,14 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
 
+use common::{setup_fleet, TestWorkspace};
 use rocky::commands::new::env::{self, EnvArgs};
-use rocky::commands::new::host::{self, HostArgs};
 use rocky::error::{Kind, RockyError};
-
-fn setup_fleet(ws: &common::TestWorkspace) -> PathBuf {
-    let fleet_path = ws.path.join("rocky");
-    fs::create_dir_all(&fleet_path).unwrap();
-    fs::write(
-        fleet_path.join("flake.nix"),
-        r#"{
-  description = "rocky test fleet";
-  outputs = inputs: {
-    rockyFleet = true;
-    config = {
-      defaultProvider = "hetzner";
-    };
-  };
-}
-"#,
-    )
-    .unwrap();
-    fleet_path
-}
 
 #[tokio::test]
 async fn test_new_env_success() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let args = EnvArgs {
@@ -67,7 +46,7 @@ async fn test_new_env_success() {
 
 #[tokio::test]
 async fn test_new_env_rejects_already_existing_env() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let args1 = EnvArgs {
@@ -91,7 +70,7 @@ async fn test_new_env_rejects_already_existing_env() {
 
 #[tokio::test]
 async fn test_new_env_rejects_invalid_name() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let args = EnvArgs {
@@ -109,7 +88,7 @@ async fn test_new_env_rejects_invalid_name() {
 
 #[tokio::test]
 async fn test_new_env_rejects_non_fleet() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let empty_path = ws.path.join("not-a-fleet");
     fs::create_dir_all(&empty_path).unwrap();
 
@@ -123,50 +102,4 @@ async fn test_new_env_rejects_non_fleet() {
         }
         other => panic!("expected NotFound Fleet, got {:?}", other),
     }
-}
-
-#[tokio::test]
-async fn test_new_env_followed_by_new_host_flow() {
-    let ws = common::TestWorkspace::new();
-    let fleet_path = setup_fleet(&ws);
-
-    // 1. Scaffold environment
-    let env_res = env::run(
-        EnvArgs {
-            name: "qa".to_string(),
-        },
-        Some(&fleet_path),
-    )
-    .await;
-    assert!(env_res.is_ok());
-
-    // 2. Scaffold host inside the new environment
-    let host_res = host::run(
-        HostArgs {
-            name: "srv-01".to_string(),
-            env: Some("qa".to_string()),
-            provider: Some("hetzner".to_string()),
-            partition: None,
-        },
-        Some(&fleet_path),
-    )
-    .await;
-    assert!(host_res.is_ok(), "host::run failed: {:?}", host_res);
-
-    let host_dir = fleet_path
-        .join("environments")
-        .join("qa")
-        .join("hosts")
-        .join("srv-01");
-    assert!(host_dir.join("default.nix").is_file());
-    assert!(host_dir.join("disko.nix").is_file());
-    assert!(host_dir.join("hardware.nix").is_file());
-
-    let default_nix = fs::read_to_string(host_dir.join("default.nix")).unwrap();
-    assert!(default_nix.contains("qa-srv-01"));
-
-    let fleet_nix =
-        fs::read_to_string(fleet_path.join("environments").join("qa").join("fleet.nix")).unwrap();
-    assert!(fleet_nix.contains(r#""srv-01" = {"#));
-    assert!(fleet_nix.contains(r#"services = [ ];"#));
 }

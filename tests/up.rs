@@ -1,61 +1,14 @@
 mod common;
 
 use std::fs;
-use std::path::{Path, PathBuf};
 
+use common::{setup_env_with_hosts, setup_fleet, TestWorkspace};
 use rocky::commands::up::{self, UpArgs};
 use rocky::error::{Kind, RockyError};
 
-fn setup_fleet(ws: &common::TestWorkspace) -> PathBuf {
-    let fleet_path = ws.path.join("rocky");
-    fs::create_dir_all(&fleet_path).unwrap();
-    fs::write(
-        fleet_path.join("flake.nix"),
-        r#"{
-  description = "rocky test fleet";
-  outputs = inputs: {
-    rockyFleet = true;
-    config = {
-      defaultProvider = "hetzner";
-    };
-  };
-}
-"#,
-    )
-    .unwrap();
-    fleet_path
-}
-
-fn setup_env_with_hosts(
-    fleet_path: &Path,
-    env_name: &str,
-    hosts_content: &str,
-    keys_content: Option<&str>,
-) -> PathBuf {
-    let env_dir = fleet_path.join("environments").join(env_name);
-    fs::create_dir_all(&env_dir).unwrap();
-
-    let fleet_nix = format!(
-        r#"{{
-  domain = "{env_name}.rocky.internal";
-  hosts = {{
-{hosts_content}
-  }};
-}}
-"#
-    );
-    fs::write(env_dir.join("fleet.nix"), fleet_nix).unwrap();
-
-    if let Some(keys) = keys_content {
-        fs::write(env_dir.join("keys.nix"), keys).unwrap();
-    }
-
-    env_dir
-}
-
 #[tokio::test]
 async fn test_up_rejects_non_fleet_directory() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let non_fleet_path = ws.path.join("random_dir");
     fs::create_dir_all(&non_fleet_path).unwrap();
 
@@ -79,7 +32,7 @@ async fn test_up_rejects_non_fleet_directory() {
 
 #[tokio::test]
 async fn test_up_rejects_missing_environment() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let args = UpArgs {
@@ -103,7 +56,7 @@ async fn test_up_rejects_missing_environment() {
 
 #[tokio::test]
 async fn test_up_rejects_missing_fleet_nix() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let env_dir = fleet_path.join("environments").join("broken-env");
@@ -130,7 +83,7 @@ async fn test_up_rejects_missing_fleet_nix() {
 
 #[tokio::test]
 async fn test_up_empty_fleet_is_up_to_date() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env_with_hosts(&fleet_path, "prod", "", None);
 
@@ -149,7 +102,7 @@ async fn test_up_empty_fleet_is_up_to_date() {
 
 #[tokio::test]
 async fn test_up_fails_on_pending_host_without_target_ip() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env_with_hosts(
         &fleet_path,
@@ -178,7 +131,7 @@ async fn test_up_fails_on_pending_host_without_target_ip() {
 
 #[tokio::test]
 async fn test_up_fails_on_invalid_target_syntax() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env_with_hosts(
         &fleet_path,
@@ -207,7 +160,7 @@ async fn test_up_fails_on_invalid_target_syntax() {
 
 #[tokio::test]
 async fn test_up_fails_when_target_specifies_wrong_host() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env_with_hosts(
         &fleet_path,
@@ -236,7 +189,7 @@ async fn test_up_fails_when_target_specifies_wrong_host() {
 
 #[tokio::test]
 async fn test_up_aborts_when_unconfirmed_in_non_interactive_mode() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env_with_hosts(
         &fleet_path,

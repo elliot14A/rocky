@@ -1,33 +1,16 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
 
+use common::{setup_fleet, TestWorkspace};
 use rocky::commands::new::env::{self, EnvArgs};
 use rocky::commands::new::host::{self, HostArgs};
 use rocky::commands::new::service::{self, ServiceArgs};
 use rocky::error::{Kind, RockyError};
 
-fn setup_fleet(ws: &common::TestWorkspace) -> PathBuf {
-    let fleet_path = ws.path.join("rocky");
-    fs::create_dir_all(&fleet_path).unwrap();
-    fs::write(
-        fleet_path.join("flake.nix"),
-        r#"{
-  description = "rocky test fleet";
-  outputs = inputs: {
-    rockyFleet = true;
-  };
-}
-"#,
-    )
-    .unwrap();
-    fleet_path
-}
-
 #[tokio::test]
 async fn test_new_service_success() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let args = ServiceArgs {
@@ -53,7 +36,7 @@ async fn test_new_service_success() {
 
 #[tokio::test]
 async fn test_new_service_rejects_non_fleet() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let empty_dir = ws.path.join("non-fleet");
     fs::create_dir_all(&empty_dir).unwrap();
 
@@ -73,7 +56,7 @@ async fn test_new_service_rejects_non_fleet() {
 
 #[tokio::test]
 async fn test_new_service_rejects_invalid_name() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let invalid_names = [
@@ -105,7 +88,7 @@ async fn test_new_service_rejects_invalid_name() {
 
 #[tokio::test]
 async fn test_new_service_rejects_already_existing_service() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
 
     let args = ServiceArgs {
@@ -128,7 +111,7 @@ async fn test_new_service_rejects_already_existing_service() {
 
 #[tokio::test]
 async fn test_new_service_evaluates_in_nix_fleet() {
-    let ws = common::TestWorkspace::new();
+    let ws = TestWorkspace::new();
     ws.init("base", false).await.unwrap();
     let fleet_path = ws.path.join("rocky");
 
