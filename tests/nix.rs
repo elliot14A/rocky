@@ -30,3 +30,8 @@ fn test_nix_secrets_scoping() {
 fn test_nix_upstreams_and_addressing() {
     eval_nix_test("tests/nix/upstreams.nix");
 }
+
+#[test]
+fn test_nix_tailscale_configuration() {
+    eval_nix_test("tests/nix/tailscale.nix");
+}
