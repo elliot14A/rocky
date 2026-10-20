@@ -9,6 +9,7 @@ let
 
   normalize = import ./normalize.nix;
   resolveServiceHost = import ./address.nix;
+  resolveServiceUpstreams = import ./upstreams.nix;
 
   baseModules = [
     ../system/ssh.nix
@@ -65,6 +66,11 @@ let
           fleet = env.fleet;
           envVars = env.envVars;
           serviceHost = resolveServiceHost {
+            fleet = env.fleet;
+            environment = env.name;
+            thisHost = hostName;
+          };
+          serviceUpstreams = resolveServiceUpstreams {
             fleet = env.fleet;
             environment = env.name;
             thisHost = hostName;
