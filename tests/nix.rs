@@ -37,6 +37,11 @@ fn test_nix_tailscale_configuration() {
 }
 
 #[test]
+fn test_nix_service_replication() {
+    eval_nix_test("tests/nix/service.nix");
+}
+
+#[test]
 fn test_nix_mesh_syntax_evaluates() {
     let full_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/nix/mesh.nix");
     let output = Command::new("nix-instantiate")
