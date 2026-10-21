@@ -21,6 +21,7 @@ pub fn parse_ast(src: &str, logical_path: &Path) -> Result<rnix::Parse<rnix::Roo
 pub fn unwrap_attr_set(expr: ast::Expr) -> Option<ast::AttrSet> {
     match expr {
         ast::Expr::AttrSet(s) => Some(s),
+        ast::Expr::Paren(p) => p.expr().and_then(unwrap_attr_set),
         ast::Expr::Lambda(l) => l.body().and_then(unwrap_attr_set),
         ast::Expr::LetIn(let_in) => let_in.body().and_then(unwrap_attr_set),
         _ => None,
@@ -45,4 +46,17 @@ pub fn parse_root_attr_set(src: &str, path: &Path) -> Result<ast::AttrSet> {
         path: path.to_path_buf(),
         reason: "expected attribute set at root",
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unwrap_attr_set_parenthesized() {
+        let src = "({ a = 1; })";
+        let parse = rnix::Root::parse(src);
+        let root = parse.tree().expr().unwrap();
+        assert!(unwrap_attr_set(root).is_some());
+    }
 }

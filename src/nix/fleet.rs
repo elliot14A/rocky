@@ -176,21 +176,36 @@ pub async fn register_host(fleet_nix_path: &Path, host_name: &str) -> Result<()>
     Ok(())
 }
 
-fn extract_services_from_expr(expr: ast::Expr) -> Vec<String> {
-    let mut current = expr;
-    while let ast::Expr::Paren(paren) = current {
+fn unwrap_parens(mut expr: ast::Expr) -> ast::Expr {
+    while let ast::Expr::Paren(ref paren) = expr {
         if let Some(inner) = paren.expr() {
-            current = inner;
+            expr = inner;
         } else {
-            return Vec::new();
+            break;
         }
     }
+    expr
+}
 
+fn extract_services_from_attr_set(attr_set: &ast::AttrSet, services: &mut Vec<String>) {
+    for entry in attr_set.attrpath_values() {
+        if let Some(attrpath) = entry.attrpath() {
+            if let Some(first) = attrpath.attrs().next() {
+                if let Some(name) = attr_to_name(&first) {
+                    services.push(name);
+                }
+            }
+        }
+    }
+}
+
+fn extract_services_from_expr(expr: ast::Expr) -> Vec<String> {
+    let current = unwrap_parens(expr);
     let mut services = Vec::new();
     match current {
         ast::Expr::List(list) => {
             for item in list.items() {
-                match item {
+                match unwrap_parens(item) {
                     ast::Expr::Str(s) => {
                         let raw = s.to_string();
                         let clean = raw.trim_matches('\'').trim_matches('"').trim();
@@ -204,20 +219,15 @@ fn extract_services_from_expr(expr: ast::Expr) -> Vec<String> {
                             services.push(name);
                         }
                     }
+                    ast::Expr::AttrSet(attr_set) => {
+                        extract_services_from_attr_set(&attr_set, &mut services);
+                    }
                     _ => {}
                 }
             }
         }
         ast::Expr::AttrSet(attr_set) => {
-            for entry in attr_set.attrpath_values() {
-                if let Some(attrpath) = entry.attrpath() {
-                    if let Some(first) = attrpath.attrs().next() {
-                        if let Some(name) = attr_to_name(&first) {
-                            services.push(name);
-                        }
-                    }
-                }
-            }
+            extract_services_from_attr_set(&attr_set, &mut services);
         }
         _ => {}
     }
@@ -694,6 +704,14 @@ mod tests {
     services = [ "worker" "caddy" "worker" ];
   };
   hosts."node-07".services = [ "gateway" ];
+  hosts."node-08".services = [
+    {
+      api = {
+        replicas = 3;
+        basePort = 8000;
+      };
+    }
+  ];
 }
 "#;
         let map = extract_host_services(fleet, Path::new("fleet.nix")).unwrap();
@@ -705,6 +723,7 @@ mod tests {
         // Deduplicated preserving order
         assert_eq!(map.get("node-06").unwrap(), &vec!["worker", "caddy"]);
         assert_eq!(map.get("node-07").unwrap(), &vec!["gateway"]);
+        assert_eq!(map.get("node-08").unwrap(), &vec!["api"]);
     }
 
     #[test]
@@ -712,5 +731,80 @@ mod tests {
         let fleet = "{ hosts = { bad = ; }; }";
         let res = extract_host_services(fleet, Path::new("fleet.nix"));
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_extract_host_services_replicated_edge_cases() {
+        let fleet = r#"{
+  hosts = {
+    edge = {
+      services = [
+        "caddy"
+        {
+          api = {
+            replicas = 3;
+            basePort = 8000;
+          };
+          worker = {
+            replicas = 2;
+          };
+        }
+        "caddy"
+        {
+          api = {};
+        }
+      ];
+    };
+    worker = {
+      services = [
+        { "auth-service" = { replicas = 1; }; }
+        { "storage-api" = { replicas = 2; }; }
+      ];
+    };
+  };
+}
+"#;
+        let map = extract_host_services(fleet, Path::new("fleet.nix")).unwrap();
+        // Should preserve order and deduplicate: "caddy", "api", "worker"
+        assert_eq!(
+            map.get("edge").unwrap(),
+            &vec!["caddy", "api", "worker"]
+        );
+        assert_eq!(
+            map.get("worker").unwrap(),
+            &vec!["auth-service", "storage-api"]
+        );
+    }
+
+    #[test]
+    fn test_extract_host_services_parenthesized_and_attrset_forms() {
+        let fleet = r#"{
+  hosts = {
+    node-paren = {
+      services = [
+        ("caddy")
+        ({
+          api = {
+            replicas = 2;
+          };
+        })
+      ];
+    };
+    node-attrset = {
+      services = {
+        web = { replicas = 1; };
+        db = {};
+      };
+    };
+    node-paren-top = {
+      services = ([ "metrics" ]);
+    };
+  };
+}
+"#;
+        let map = extract_host_services(fleet, Path::new("fleet.nix")).unwrap();
+        assert_eq!(map.get("node-paren").unwrap(), &vec!["caddy", "api"]);
+        assert_eq!(map.get("node-attrset").unwrap(), &vec!["web", "db"]);
+        assert_eq!(map.get("node-paren-top").unwrap(), &vec!["metrics"]);
     }
 }
