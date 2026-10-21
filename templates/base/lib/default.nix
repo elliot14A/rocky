@@ -10,12 +10,15 @@ let
   normalize = import ./normalize.nix;
   resolveServiceHost = import ./address.nix;
   resolveServiceUpstreams = import ./upstreams.nix;
+  serviceHelpers = import ./service.nix;
+  portsLib = import ./ports.nix { inherit lib; };
 
   baseModules = [
     ../system/ssh.nix
     ../system/firewall.nix
     ../system/tailscale.nix
     ../system/baseline.nix
+    ../system/containers.nix
   ];
 
   # Discover all environment folders (e.g. environments/prod, environments/stag)
@@ -42,7 +45,7 @@ let
     let
       fullHostName = "${env.name}-${hostName}";
       systemArchitecture = hostConfig.system or "x86_64-linux";
-      normalizedServices = normalize hostConfig.services;
+      normalizedServices = normalize (hostConfig.services or [ ]);
 
       serviceModules = map (
         service:
@@ -55,13 +58,22 @@ let
           throw "environment '${env.name}', host '${hostName}': service module '${path}' does not exist"
       ) (builtins.attrNames normalizedServices);
 
+      normalizedHostConfig = hostConfig // {
+        services = normalizedServices;
+      };
+
+      helpers = serviceHelpers {
+        hostConfig = normalizedHostConfig;
+        inherit lib;
+      };
+
+      portCollision = portsLib.validateHostServices normalizedServices;
+
       systemConfig = lib.nixosSystem {
         system = systemArchitecture;
         specialArgs = {
           inherit inputs hostName;
-          hostConfig = hostConfig // {
-            services = normalizedServices;
-          };
+          hostConfig = normalizedHostConfig;
           environment = env.name;
           fleet = env.fleet;
           envVars = env.envVars;
@@ -75,9 +87,21 @@ let
             environment = env.name;
             thisHost = hostName;
           };
+          replicateService = helpers.replicateService;
+          replicateContainers = helpers.replicateContainers;
+          containerRestartTriggers = helpers.containerRestartTriggers;
         };
         modules = [
           inputs.agenix.nixosModules.default
+          {
+            networking.hostName = lib.mkDefault fullHostName;
+            assertions = [
+              {
+                assertion = portCollision == null;
+                message = "host '${fullHostName}': port collision on port ${toString (portCollision.port or 0)} (${portCollision.protocol or "tcp"}) between ${portCollision.first or ""} and ${portCollision.second or ""}";
+              }
+            ];
+          }
         ]
         ++ baseModules
         ++ [
