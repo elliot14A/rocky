@@ -80,7 +80,7 @@ async fn test_new_host_auto_selects_single_environment() {
 }
 
 #[tokio::test]
-async fn test_new_host_picks_first_environment_when_multiple_exist_and_none_specified() {
+async fn test_new_host_rejects_ambiguous_environment_when_multiple_exist_and_none_specified() {
     let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
     setup_env(&fleet_path, "prod");
@@ -94,16 +94,15 @@ async fn test_new_host_picks_first_environment_when_multiple_exist_and_none_spec
     };
 
     let res = host::run(args, Some(&fleet_path)).await;
-    assert!(res.is_ok(), "expected host::run to succeed, got: {:?}", res);
-
-    let host_dir = fleet_path
-        .join("environments")
-        .join("prod")
-        .join("hosts")
-        .join("worker-01");
-    assert!(host_dir.join("default.nix").is_file());
-    let default_nix = fs::read_to_string(host_dir.join("default.nix")).unwrap();
-    assert!(default_nix.contains("prod-worker-01"));
+    match res {
+        Err(RockyError::AmbiguousEnvironment { environments }) => {
+            assert_eq!(
+                environments,
+                vec!["prod".to_string(), "staging".to_string()]
+            );
+        }
+        other => panic!("expected AmbiguousEnvironment, got {:?}", other),
+    }
 }
 
 #[tokio::test]

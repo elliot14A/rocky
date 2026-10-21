@@ -71,6 +71,12 @@ pub enum RockyError {
 
     #[snafu(display("Missing target IP address for host '{host}'"))]
     MissingTargetIp { host: String },
+
+    #[snafu(display(
+        "Multiple environments found ([{}]); specify target environment with --env <name>",
+        environments.join(", ")
+    ))]
+    AmbiguousEnvironment { environments: Vec<String> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

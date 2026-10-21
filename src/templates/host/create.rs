@@ -3,7 +3,9 @@ use std::path::Path;
 use snafu::ResultExt;
 use tap::prelude::*;
 
-use crate::error::{AlreadyExistsSnafu, IoSnafu, Kind, NotFoundSnafu, Result};
+use crate::error::{
+    AlreadyExistsSnafu, AmbiguousEnvironmentSnafu, IoSnafu, Kind, NotFoundSnafu, Result,
+};
 use crate::templates::{fetch_partitions, fetch_provider};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix};
@@ -44,11 +46,15 @@ fn resolve_environment(envs_dir: &Path, env: Option<&str>) -> Result<String> {
                 .tap_mut(|v| v.sort());
 
             match available.as_slice() {
-                [first, ..] => Ok(first.clone()),
+                [single] => Ok(single.clone()),
                 [] => NotFoundSnafu {
                     kind: Kind::Environment,
                     name: "any".to_string(),
                     path: envs_dir,
+                }
+                .fail(),
+                multiple => AmbiguousEnvironmentSnafu {
+                    environments: multiple.to_vec(),
                 }
                 .fail(),
             }
