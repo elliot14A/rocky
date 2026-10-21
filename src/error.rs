@@ -87,7 +87,7 @@ pub enum Kind {
 impl std::fmt::Display for Kind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Fleet => write!(f, "Fleet"),
+            Self::Fleet => write!(f, "Rocky"),
             Self::Template => write!(f, "Template"),
             Self::Provider => write!(f, "Provider"),
             Self::Environment => write!(f, "Environment"),

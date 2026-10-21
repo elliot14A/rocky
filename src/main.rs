@@ -5,6 +5,7 @@ use tap::prelude::*;
 
 use rocky::commands::{self, Command};
 use rocky::process::log;
+use rocky::ui;
 
 #[derive(Parser, Debug)]
 #[command(name = "rocky", version, about = "NixOS fleet deployment tool")]
@@ -25,7 +26,10 @@ async fn main() -> ExitCode {
 
     commands::execute(cli.command)
         .await
-        .tap_err(|err| tracing::error!(%err, "command failed"))
+        .tap_err(|err| {
+            ui::error(err.to_string());
+            tracing::error!(%err, "command failed");
+        })
         .map(|_| ExitCode::SUCCESS)
         .unwrap_or(ExitCode::FAILURE)
 }

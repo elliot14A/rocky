@@ -21,9 +21,9 @@ pub struct InitArgs {
 
 pub async fn run(args: InitArgs) -> Result<()> {
     ui::with_spinner(
-        format!("Initializing fleet with '{}' template...", args.template),
+        format!("Initializing Rocky with '{}' template...", args.template),
         format!(
-            "Initialized fleet with '{}' template in {}",
+            "Initialized Rocky with '{}' template in {}",
             args.template,
             args.path.display()
         ),
