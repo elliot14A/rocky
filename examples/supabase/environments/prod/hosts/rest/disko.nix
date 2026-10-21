@@ -3,7 +3,7 @@
 {
   disko.devices.disk.main = {
     type = "disk";
-    device = lib.mkDefault "/dev/sda";
+    device = lib.mkDefault "/dev/vda";
 
     content = {
       type = "gpt";

@@ -14,7 +14,7 @@ in
   boot.loader.systemd-boot.enable = lib.mkDefault false;
   boot.loader.grub = {
     enable = lib.mkDefault true;
-    devices = lib.mkDefault [ "nodev" ];
+    devices = lib.mkDefault [ "/dev/vda" ];
     efiSupport = lib.mkDefault true;
     efiInstallAsRemovable = lib.mkDefault true;
     configurationLimit = lib.mkDefault 10;
