@@ -23,51 +23,107 @@ fn generate_service_nix(name: &str) -> String {
   fleet,
   envVars,
   serviceHost,
+  serviceUpstreams,
+  replicateService,
+  replicateContainers,
+  containerRestartTriggers,
   ...
 }}:
 
 let
   # Per-environment configuration overrides from environments/${{environment}}/env.nix
   serviceEnv = envVars.{name} or {{ }};
+
+  # Secret configuration (empty by default; uncomment to load agenix secrets)
+  # secretNames = [ "{name}.env" ];
+  # secretsDir = ../environments + "/${{environment}}/secrets";
+  envFiles = [ ]; # map (n: config.age.secrets.${{n}}.path) secretNames;
+  secretHashes = [ ]; # map (n: builtins.hashFile "sha256" (secretsDir + "/${{n}}.age")) secretNames;
 in
 {{
-  # --------------------------------------------------------------------------
+  # ==========================================================================
   # Option A: Native Systemd Service
-  # --------------------------------------------------------------------------
+  # ==========================================================================
+  #
+  # 1. Single Unit (default):
   # systemd.services.{name} = {{
   #   description = "{name} service";
   #   wantedBy = [ "multi-user.target" ];
   #   serviceConfig = {{
   #     ExecStart = "${{pkgs.example}}/bin/example";
   #     Restart = "on-failure";
-  #     # Optional hardening:
-  #     # DynamicUser = true;
-  #     # ProtectSystem = "strict";
+  #     EnvironmentFile = envFiles;
   #   }};
+  #   restartTriggers = secretHashes;
   #   environment = {{
-  #     # Derive service addresses from fleet topology:
-  #     # OTHER_SERVICE_HOST = serviceHost "other-service";
+  #     OTHER_SERVICE_HOST = serviceHost "other-service";
   #   }} // serviceEnv;
   # }};
+  #
+  # 2. Replicated Units (multi-instance on port offsets):
+  # systemd.services = replicateService {{
+  #   service = "{name}";
+  #   basePort = 8000;
+  #   inherit envFiles secretHashes;
+  #   mkUnit = {{ index, port, name }}: {{
+  #     description = "{name} service (instance ${{toString index}})";
+  #     wantedBy = [ "multi-user.target" ];
+  #     serviceConfig = {{
+  #       ExecStart = "${{pkgs.example}}/bin/example";
+  #       Restart = "on-failure";
+  #     }};
+  #     environment = {{
+  #       PORT = toString port;
+  #     }} // serviceEnv;
+  #   }};
+  # }};
 
-  # --------------------------------------------------------------------------
-  # Option B: OCI Container (Podman)
-  # --------------------------------------------------------------------------
+  # ==========================================================================
+  # Option B: OCI Container via Podman
+  # ==========================================================================
+  #
+  # 1. Single Container (default):
   # virtualisation.oci-containers.containers.{name} = {{
   #   image = "ghcr.io/org/{name}:latest";
   #   autoStart = true;
   #   ports = [ "8080:8080" ];
+  #   environmentFiles = envFiles;
   #   environment = {{
-  #     # OTHER_SERVICE_HOST = serviceHost "other-service";
+  #     OTHER_SERVICE_HOST = serviceHost "other-service";
   #   }} // serviceEnv;
-  #   # Load agenix secrets from file:
-  #   # environmentFiles = [ config.age.secrets."{name}.env".path ];
+  # }};
+  # systemd.services = containerRestartTriggers {{
+  #   service = "{name}";
+  #   inherit secretHashes;
+  # }};
+  #
+  # 2. Replicated Containers (multi-instance on port offsets):
+  # virtualisation.oci-containers.containers = replicateContainers {{
+  #   service = "{name}";
+  #   basePort = 8080;
+  #   containerPort = 8080;
+  #   inherit envFiles;
+  #   mkContainer = {{ index, port, name }}: {{
+  #     image = "ghcr.io/org/{name}:latest";
+  #     autoStart = true;
+  #     environment = serviceEnv;
+  #   }};
+  # }};
+  # systemd.services = containerRestartTriggers {{
+  #   service = "{name}";
+  #   inherit secretHashes;
   # }};
 
-  # --------------------------------------------------------------------------
+  # ==========================================================================
   # Option C: Packaged NixOS Service (e.g. postgresql, caddy, redis)
-  # --------------------------------------------------------------------------
+  # ==========================================================================
   # services.redis.servers.{name}.enable = true;
+  #
+  # Gateway / Ingress Reverse Proxy Example:
+  # Route traffic across all replicated backends on the mesh:
+  # services.caddy.virtualHosts."api.example.com".extraConfig = ''
+  #   reverse_proxy ${{lib.concatStringsSep " " (serviceUpstreams {{ service = "api"; basePort = 8000; }})}}
+  # '';
 }}
 "#
     )
