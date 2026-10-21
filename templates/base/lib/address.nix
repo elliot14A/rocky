@@ -8,7 +8,13 @@ in
 }:
 service:
 let
-  runs = host: builtins.hasAttr service (normalizeServices (fleet.hosts.${host}.services or [ ]));
+  servicesOf = host: normalizeServices (fleet.hosts.${host}.services or [ ]);
+  runs =
+    host:
+    let
+      services = servicesOf host;
+    in
+    (builtins.hasAttr service services) && ((services.${service}.replicas or 1) > 0);
   candidates = builtins.filter runs (builtins.attrNames fleet.hosts);
 in
 if runs thisHost then

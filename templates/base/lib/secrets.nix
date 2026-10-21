@@ -14,7 +14,11 @@ let
   hostsRunning =
     services:
     builtins.filter (
-      host: builtins.any (s: builtins.hasAttr s (servicesOn host)) services
+      host:
+      let
+        sOn = servicesOn host;
+      in
+      builtins.any (s: (builtins.hasAttr s sOn) && ((sOn.${s}.replicas or 1) > 0)) services
     ) allHostNames;
 
   # A host gets an SSH key only after nixos-anywhere has installed it. Until
