@@ -11,4 +11,21 @@ let
     allHosts
     ;
 in
-{ }
+{
+  "jwt.age".publicKeys = recipientsFor [
+    "postgrest"
+    "storage"
+    "gotrue"
+    "studio"
+  ];
+  "db-credentials.age".publicKeys = recipientsFor [
+    "postgres"
+    "pgdog"
+    "postgrest"
+    "storage"
+    "gotrue"
+  ];
+  "pgdog-users.age".publicKeys = recipientsFor [ "pgdog" ];
+  "rustic.age".publicKeys = recipientsFor [ "rustic" ];
+  "tailscale-authkey.age".publicKeys = allHosts;
+}
