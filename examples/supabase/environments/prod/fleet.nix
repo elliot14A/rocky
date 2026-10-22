@@ -6,27 +6,46 @@
 
   hosts = {
     "db" = {
-      services = [ ];
+      services = [
+        "postgres"
+        "pgdog"
+        "rustic"
+      ];
     };
 
     "rest" = {
-      services = [ ];
+      services = {
+        "postgrest" = {
+          replicas = 3;
+          basePort = 3000;
+        };
+      };
     };
 
     "auth" = {
-      services = [ ];
+      services = {
+        "gotrue" = {
+          replicas = 2;
+          basePort = 9999;
+        };
+      };
     };
 
     "storage" = {
-      services = [ ];
+      services = {
+        "storage" = {
+          replicas = 2;
+          basePort = 5000;
+        };
+      };
     };
 
     "web" = {
-      services = [ ];
+      services = [ "studio" ];
     };
 
     "edge" = {
-      services = [ ];
+      services = [ "caddy" ];
     };
   };
 }
