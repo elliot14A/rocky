@@ -339,3 +339,111 @@ in
         Err(err) => panic!("secret::rekey with nested secrets dir failed: {err}"),
     }
 }
+
+#[test]
+fn test_secret_new_comma_separated_services_parsing() {
+    use clap::Parser;
+    use rocky::commands::{Cli, Command};
+
+    let cli = Cli::try_parse_from([
+        "rocky",
+        "secret",
+        "new",
+        "jwt",
+        "-s",
+        "postgrest,storage,gotrue,studio",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Secret(rocky::commands::secret::SecretArgs {
+            command: rocky::commands::secret::SecretCommand::New(args),
+        }) => {
+            assert_eq!(
+                args.service,
+                vec!["postgrest", "storage", "gotrue", "studio"]
+            );
+        }
+        _ => panic!("unexpected command parsed"),
+    }
+}
+
+#[test]
+fn test_secret_new_mixed_and_long_form_services_parsing() {
+    use clap::Parser;
+    use rocky::commands::{Cli, Command};
+
+    let cli = Cli::try_parse_from([
+        "rocky",
+        "secret",
+        "new",
+        "jwt",
+        "-s",
+        "postgrest,storage",
+        "--service",
+        "gotrue",
+        "-s",
+        "studio",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Secret(rocky::commands::secret::SecretArgs {
+            command: rocky::commands::secret::SecretCommand::New(args),
+        }) => {
+            assert_eq!(
+                args.service,
+                vec!["postgrest", "storage", "gotrue", "studio"]
+            );
+        }
+        _ => panic!("unexpected command parsed"),
+    }
+}
+
+#[tokio::test]
+async fn test_secret_new_comma_separated_services_end_to_end() {
+    use clap::Parser;
+    use rocky::commands::{Cli, Command};
+
+    let ws = TestWorkspace::new();
+    let (fleet_path, _key_path, _pubkey) = setup_fleet_with_secrets_env(&ws);
+
+    let services_dir = fleet_path.join("services");
+    fs::create_dir_all(&services_dir).unwrap();
+    fs::write(services_dir.join("postgrest.nix"), "{ ... }: {}").unwrap();
+    fs::write(services_dir.join("storage.nix"), "{ ... }: {}").unwrap();
+
+    let cli = Cli::try_parse_from([
+        "rocky",
+        "secret",
+        "new",
+        "app-key",
+        "-s",
+        "postgrest,storage",
+        "--value",
+        "KEY=val\n",
+    ])
+    .unwrap();
+
+    let args = match cli.command {
+        Command::Secret(rocky::commands::secret::SecretArgs {
+            command: rocky::commands::secret::SecretCommand::New(args),
+        }) => args,
+        _ => panic!("unexpected command parsed"),
+    };
+
+    let res = new::run(args, Some(&fleet_path)).await;
+    assert!(
+        res.is_ok(),
+        "secret new with comma services failed: {res:?}"
+    );
+
+    let env_dir = fleet_path.join("environments").join("prod");
+    let secrets_nix = fs::read_to_string(env_dir.join("secrets.nix")).unwrap();
+    assert!(
+        secrets_nix.contains(r#""app-key.age".publicKeys = recipientsFor ["#)
+            && secrets_nix.contains(r#""postgrest""#)
+            && secrets_nix.contains(r#""storage""#),
+        "secrets.nix missing scoped services: {secrets_nix}"
+    );
+}

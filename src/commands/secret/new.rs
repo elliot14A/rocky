@@ -16,8 +16,8 @@ pub struct NewArgs {
     #[arg(short, long)]
     pub env: Option<String>,
 
-    /// Service to scope recipient keys for (can be specified multiple times)
-    #[arg(short, long)]
+    /// Service(s) to scope recipient keys for (can be comma-separated, e.g. -s postgrest,storage)
+    #[arg(short, long, value_delimiter = ',')]
     pub service: Vec<String>,
 
     /// Scope secret to all hosts in the environment

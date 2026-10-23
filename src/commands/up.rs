@@ -26,7 +26,8 @@ pub struct UpArgs {
     #[arg(
         short,
         long,
-        help = "Map host to rescue IP/port (e.g. --target node-01=192.168.1.10:2222)"
+        value_delimiter = ',',
+        help = "Map host to rescue IP/port (e.g. -t node-01=192.168.1.10:2222,node-02=192.168.1.11:2222)"
     )]
     pub target: Vec<String>,
 

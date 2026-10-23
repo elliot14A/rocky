@@ -221,3 +221,89 @@ async fn test_up_aborts_when_unconfirmed_in_non_interactive_mode() {
         .join("keys.nix");
     assert!(!keys_path.exists());
 }
+
+#[test]
+fn test_up_comma_separated_targets_parsing() {
+    use clap::Parser;
+    use rocky::commands::{Cli, Command};
+
+    let cli = Cli::try_parse_from([
+        "rocky",
+        "up",
+        "prod",
+        "-t",
+        "node-01=192.168.1.10:2222,node-02=192.168.1.11:2222",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Up(args) => {
+            assert_eq!(
+                args.target,
+                vec!["node-01=192.168.1.10:2222", "node-02=192.168.1.11:2222"]
+            );
+        }
+        _ => panic!("unexpected command parsed"),
+    }
+}
+
+#[test]
+fn test_up_mixed_and_long_form_targets_parsing() {
+    use clap::Parser;
+    use rocky::commands::{Cli, Command};
+
+    let cli = Cli::try_parse_from([
+        "rocky",
+        "up",
+        "prod",
+        "-t",
+        "node-01=192.168.1.10:2222,node-02=192.168.1.11:2222",
+        "--target",
+        "node-03=192.168.1.12:2222",
+    ])
+    .unwrap();
+
+    match cli.command {
+        Command::Up(args) => {
+            assert_eq!(
+                args.target,
+                vec![
+                    "node-01=192.168.1.10:2222",
+                    "node-02=192.168.1.11:2222",
+                    "node-03=192.168.1.12:2222",
+                ]
+            );
+        }
+        _ => panic!("unexpected command parsed"),
+    }
+}
+
+#[test]
+fn test_up_parse_targets_with_comma_separated_inputs() {
+    use clap::Parser;
+    use rocky::commands::{Cli, Command};
+    use rocky::ssh::parse_targets;
+
+    let cli = Cli::try_parse_from([
+        "rocky",
+        "up",
+        "prod",
+        "-t",
+        "node-01=192.168.1.10:2222,node-02=192.168.1.11:2223",
+    ])
+    .unwrap();
+
+    let targets = match cli.command {
+        Command::Up(args) => parse_targets(&args.target).unwrap(),
+        _ => panic!("unexpected command parsed"),
+    };
+
+    assert_eq!(targets.len(), 2);
+    let t1 = targets.get("node-01").unwrap();
+    assert_eq!(t1.address, "192.168.1.10");
+    assert_eq!(t1.port, 2222);
+
+    let t2 = targets.get("node-02").unwrap();
+    assert_eq!(t2.address, "192.168.1.11");
+    assert_eq!(t2.port, 2223);
+}
