@@ -27,6 +27,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rpassword = "7.5"
 shlex = "2.0"
+clap_complete = "4.5"
 
 [package]
 name = "rocky"
@@ -47,3 +48,4 @@ rowan.workspace = true
 serde_json.workspace = true
 rpassword.workspace = true
 shlex.workspace = true
+clap_complete.workspace = true
