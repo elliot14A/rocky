@@ -25,6 +25,8 @@ tar = "0.4"
 flate2 = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+rpassword = "7.5"
+shlex = "2.0"
 
 [package]
 name = "rocky"
@@ -42,3 +44,6 @@ tempfile.workspace = true
 indicatif.workspace = true
 rnix.workspace = true
 rowan.workspace = true
+serde_json.workspace = true
+rpassword.workspace = true
+shlex.workspace = true

@@ -77,6 +77,11 @@ pub enum RockyError {
         environments.join(", ")
     ))]
     AmbiguousEnvironment { environments: Vec<String> },
+
+    #[snafu(display(
+        "Invalid key-value syntax on line {line} in secret content: '{line_content}'"
+    ))]
+    InvalidSecretSyntax { line: usize, line_content: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -229,6 +234,18 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Missing target IP address for host 'node-01'"
+        );
+    }
+
+    #[test]
+    fn test_invalid_secret_syntax_display() {
+        let err = RockyError::InvalidSecretSyntax {
+            line: 4,
+            line_content: "foo bar".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Invalid key-value syntax on line 4 in secret content: 'foo bar'"
         );
     }
 }
