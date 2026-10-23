@@ -5,6 +5,7 @@ mod fleet;
 mod fmt;
 mod keys;
 mod plan;
+mod secret;
 
 pub use diff::{diff_env, diff_hosts, HostDiff};
 pub use eval::{eval, eval_default_provider};
@@ -15,3 +16,4 @@ pub use fleet::{
 pub use fmt::fmt;
 pub use keys::{extract_public_keys, insert_host_key, register_host_key};
 pub use plan::{build_plan, format_plan, DeployItem, FleetPlan, InstallItem};
+pub use secret::{insert_secret_entry, list_declared_secrets};
