@@ -19,9 +19,18 @@
       self,
       nixpkgs,
       deploy-rs,
-      ...
+      disko,
+      agenix,
     }:
     let
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+
       config = {
         defaultProvider = "default";
       };
@@ -34,5 +43,26 @@
       rockyFleet = true;
       inherit config;
       inherit (fleet) nixosConfigurations deploy;
+
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = pkgs.mkShell {
+            packages = [
+              deploy-rs.packages.${system}.deploy-rs
+              agenix.packages.${system}.default
+              pkgs.age
+              pkgs.nixos-anywhere
+              pkgs.nixfmt
+              pkgs.openssh
+            ];
+          };
+        }
+      );
+
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt);
     };
 }
