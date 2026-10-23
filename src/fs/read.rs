@@ -11,6 +11,12 @@ pub fn read_file(path: &Path) -> Result<String> {
         .tap_ok(|_| tracing::debug!(path = %path.display(), "read file"))
 }
 
+pub fn read_file_bytes(path: &Path) -> Result<Vec<u8>> {
+    std::fs::read(path)
+        .context(IoSnafu { path })
+        .tap_ok(|_| tracing::debug!(path = %path.display(), "read file bytes"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

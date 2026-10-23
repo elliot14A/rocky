@@ -6,6 +6,6 @@ mod write;
 
 pub use copy::{copy_dir_all, copy_file};
 pub use dir::{ensure_dir, is_dir_empty};
-pub use read::read_file;
+pub use read::{read_file, read_file_bytes};
 pub use rollback::Rollback;
-pub use write::write_file;
+pub use write::{write_file, write_file_bytes};
