@@ -18,14 +18,19 @@ pub fn parse_ast(src: &str, logical_path: &Path) -> Result<rnix::Parse<rnix::Roo
     Ok(parse)
 }
 
-pub fn unwrap_attr_set(expr: ast::Expr) -> Option<ast::AttrSet> {
-    match expr {
-        ast::Expr::AttrSet(s) => Some(s),
-        ast::Expr::Paren(p) => p.expr().and_then(unwrap_attr_set),
-        ast::Expr::Lambda(l) => l.body().and_then(unwrap_attr_set),
-        ast::Expr::LetIn(let_in) => let_in.body().and_then(unwrap_attr_set),
-        _ => None,
+const MAX_UNWRAP_DEPTH: usize = 32;
+
+pub fn unwrap_attr_set(mut expr: ast::Expr) -> Option<ast::AttrSet> {
+    for _ in 0..MAX_UNWRAP_DEPTH {
+        match expr {
+            ast::Expr::AttrSet(s) => return Some(s),
+            ast::Expr::Paren(p) => expr = p.expr()?,
+            ast::Expr::Lambda(l) => expr = l.body()?,
+            ast::Expr::LetIn(let_in) => expr = let_in.body()?,
+            _ => return None,
+        }
     }
+    None
 }
 
 pub fn attr_to_name(attr: &ast::Attr) -> Option<String> {
