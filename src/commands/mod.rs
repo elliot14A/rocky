@@ -1,3 +1,4 @@
+pub mod check;
 pub mod init;
 pub mod new;
 pub mod secret;
@@ -9,6 +10,9 @@ use crate::error::Result;
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
+    /// Check fleet configurations and flake outputs
+    Check(check::CheckArgs),
+
     /// Initialize a new fleet from the official GitHub templates catalog
     Init(init::InitArgs),
 
@@ -24,6 +28,7 @@ pub enum Command {
 
 pub async fn execute(command: Command) -> Result<()> {
     match command {
+        Command::Check(args) => check::run(args, None).await,
         Command::Init(args) => init::run(args).await,
         Command::New(args) => new::run(args).await,
         Command::Secret(args) => secret::run(args, None).await,
