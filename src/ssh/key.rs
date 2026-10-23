@@ -13,11 +13,19 @@ pub fn canonicalize_identity(identity: Option<&Path>) -> Result<Option<PathBuf>>
         return Ok(None);
     };
 
+    let id_str = id.to_string_lossy();
     ensure!(
-        !id.to_string_lossy().contains('"'),
+        !id_str.chars().any(|c| c == '"'
+            || c == '\''
+            || c == '\\'
+            || c == '$'
+            || c == '`'
+            || c == '\n'
+            || c == '\r'),
         InsecurePathSnafu {
             path: id.to_path_buf(),
-            reason: "identity path cannot contain double quotes".to_string(),
+            reason: "identity path cannot contain quotes, shell metacharacters, or newlines"
+                .to_string(),
         }
     );
 
@@ -263,5 +271,11 @@ mod tests {
 
         let missing = temp.path().join("missing");
         assert!(canonicalize_identity(Some(&missing)).is_err());
+
+        let evil_quote = temp.path().join("id_\"evil");
+        assert!(canonicalize_identity(Some(&evil_quote)).is_err());
+
+        let evil_dollar = temp.path().join("id_$evil");
+        assert!(canonicalize_identity(Some(&evil_dollar)).is_err());
     }
 }
