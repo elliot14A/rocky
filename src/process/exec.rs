@@ -20,8 +20,10 @@ where
 
     let mut command = Command::new(cmd);
     command.args(&args_vec);
+    command.stdin(Stdio::null());
     command.stdout(Stdio::piped());
     command.stderr(Stdio::piped());
+    command.kill_on_drop(true);
 
     if let Some(dir) = cwd {
         command.current_dir(dir);
