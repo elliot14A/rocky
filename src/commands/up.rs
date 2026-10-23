@@ -11,8 +11,8 @@ use crate::error::{
 };
 use crate::fs::Rollback;
 use crate::nix::{
-    build_plan, diff_env, extract_host_services, format_plan, register_host_key, with_fleet,
-    FleetPlan,
+    build_plan, diff_env, extract_host_services, format_plan, register_host_key,
+    resolve_secrets_dir, with_fleet, FleetPlan,
 };
 use crate::process::{deploy_fleet, install_fleet, HostDeploy, HostInstall};
 use crate::ssh::{generate_host_key, parse_target, parse_targets, Target};
@@ -220,7 +220,7 @@ async fn rekey_environment(
     environment: &str,
     identity: Option<&Path>,
 ) -> Result<()> {
-    let secrets_dir = env_dir.join("secrets");
+    let secrets_dir = resolve_secrets_dir(env_dir);
     if secrets_dir.join("secrets.nix").is_file() {
         ui::info(format!(
             "Rekeying secrets for environment '{environment}'..."

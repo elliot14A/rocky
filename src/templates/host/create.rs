@@ -1,66 +1,11 @@
 use std::path::Path;
 
-use snafu::ResultExt;
 use tap::prelude::*;
 
-use crate::error::{
-    AlreadyExistsSnafu, AmbiguousEnvironmentSnafu, IoSnafu, Kind, NotFoundSnafu, Result,
-};
+use crate::error::{AlreadyExistsSnafu, Kind, NotFoundSnafu, Result};
 use crate::templates::{fetch_partitions, fetch_provider};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix};
-
-fn resolve_environment(envs_dir: &Path, env: Option<&str>) -> Result<String> {
-    match env {
-        Some(e) => {
-            validate_name(Kind::Environment, e)?;
-            let target_env_dir = envs_dir.join(e);
-            target_env_dir
-                .is_dir()
-                .then(|| e.to_string())
-                .ok_or_else(|| {
-                    NotFoundSnafu {
-                        kind: Kind::Environment,
-                        name: e.to_string(),
-                        path: target_env_dir,
-                    }
-                    .build()
-                })
-        }
-        None => {
-            if !envs_dir.is_dir() {
-                return NotFoundSnafu {
-                    kind: Kind::Environment,
-                    name: "any".to_string(),
-                    path: envs_dir,
-                }
-                .fail();
-            }
-
-            let available: Vec<String> = std::fs::read_dir(envs_dir)
-                .context(IoSnafu { path: envs_dir })?
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().is_dir())
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .collect::<Vec<_>>()
-                .tap_mut(|v| v.sort());
-
-            match available.as_slice() {
-                [single] => Ok(single.clone()),
-                [] => NotFoundSnafu {
-                    kind: Kind::Environment,
-                    name: "any".to_string(),
-                    path: envs_dir,
-                }
-                .fail(),
-                multiple => AmbiguousEnvironmentSnafu {
-                    environments: multiple.to_vec(),
-                }
-                .fail(),
-            }
-        }
-    }
-}
 
 fn generate_default_nix(env: &str, name: &str) -> String {
     format!(
@@ -87,11 +32,8 @@ pub async fn create(
     validate_name(Kind::Host, name)?;
     validate_name(Kind::Provider, provider)?;
 
-    let env_name = resolve_environment(&fleet_root.join("environments"), env)?;
-    let fleet_nix_path = fleet_root
-        .join("environments")
-        .join(&env_name)
-        .join("fleet.nix");
+    let (env_name, env_dir) = nix::resolve_environment(fleet_root, env)?;
+    let fleet_nix_path = env_dir.join("fleet.nix");
 
     if !fleet_nix_path.is_file() {
         return NotFoundSnafu {

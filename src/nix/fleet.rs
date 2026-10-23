@@ -5,7 +5,10 @@ use rnix::ast::{self, HasEntry};
 use snafu::{OptionExt, ResultExt};
 use tap::prelude::*;
 
-use crate::error::{AlreadyExistsSnafu, IoSnafu, Kind, NixParseSnafu, NotFoundSnafu, Result};
+use crate::error::{
+    AlreadyExistsSnafu, AmbiguousEnvironmentSnafu, IoSnafu, Kind, NixParseSnafu, NotFoundSnafu,
+    Result,
+};
 use crate::utils::validate::validate_name;
 
 async fn verify_fleet(dir: &Path) -> Result<PathBuf> {
@@ -53,6 +56,80 @@ where
         .tap_ok(|root| tracing::debug!(fleet_root = %root.display(), "verified fleet root"))?
         .pipe(f)
         .await
+}
+
+pub fn resolve_environment(fleet_root: &Path, env: Option<&str>) -> Result<(String, PathBuf)> {
+    let envs_dir = fleet_root.join("environments");
+    let env_name = match env {
+        Some(e) => {
+            validate_name(Kind::Environment, e)?;
+            let target_env_dir = envs_dir.join(e);
+            target_env_dir
+                .is_dir()
+                .then(|| e.to_string())
+                .ok_or_else(|| {
+                    NotFoundSnafu {
+                        kind: Kind::Environment,
+                        name: e.to_string(),
+                        path: target_env_dir,
+                    }
+                    .build()
+                })?
+        }
+        None => {
+            if !envs_dir.is_dir() {
+                return NotFoundSnafu {
+                    kind: Kind::Environment,
+                    name: "any".to_string(),
+                    path: envs_dir,
+                }
+                .fail();
+            }
+
+            let available: Vec<String> = std::fs::read_dir(&envs_dir)
+                .context(IoSnafu {
+                    path: envs_dir.clone(),
+                })?
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| entry.path().is_dir())
+                .filter_map(|entry| entry.file_name().into_string().ok())
+                .filter(|name| {
+                    !name.starts_with('.') && validate_name(Kind::Environment, name).is_ok()
+                })
+                .collect::<Vec<_>>()
+                .tap_mut(|v| v.sort());
+
+            match available.as_slice() {
+                [single] => single.clone(),
+                [] => {
+                    return NotFoundSnafu {
+                        kind: Kind::Environment,
+                        name: "any".to_string(),
+                        path: envs_dir,
+                    }
+                    .fail();
+                }
+                _ => {
+                    return AmbiguousEnvironmentSnafu {
+                        environments: available,
+                    }
+                    .fail();
+                }
+            }
+        }
+    };
+
+    let env_dir = envs_dir.join(&env_name);
+    Ok((env_name, env_dir))
+}
+
+pub fn resolve_secrets_dir(env_dir: &Path) -> PathBuf {
+    let nested = env_dir.join("secrets");
+    if nested.is_dir() {
+        nested
+    } else {
+        env_dir.to_path_buf()
+    }
 }
 
 use super::ast::{attr_to_name, parse_root_attr_set, unwrap_attr_set};
@@ -766,10 +843,7 @@ mod tests {
 "#;
         let map = extract_host_services(fleet, Path::new("fleet.nix")).unwrap();
         // Should preserve order and deduplicate: "caddy", "api", "worker"
-        assert_eq!(
-            map.get("edge").unwrap(),
-            &vec!["caddy", "api", "worker"]
-        );
+        assert_eq!(map.get("edge").unwrap(), &vec!["caddy", "api", "worker"]);
         assert_eq!(
             map.get("worker").unwrap(),
             &vec!["auth-service", "storage-api"]
@@ -806,5 +880,19 @@ mod tests {
         assert_eq!(map.get("node-paren").unwrap(), &vec!["caddy", "api"]);
         assert_eq!(map.get("node-attrset").unwrap(), &vec!["web", "db"]);
         assert_eq!(map.get("node-paren-top").unwrap(), &vec!["metrics"]);
+    }
+
+    #[test]
+    fn test_resolve_environment_ignores_hidden_and_invalid_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let fleet_root = dir.path();
+        let envs_dir = fleet_root.join("environments");
+        std::fs::create_dir_all(envs_dir.join(".direnv")).unwrap();
+        std::fs::create_dir_all(envs_dir.join(".git")).unwrap();
+        std::fs::create_dir_all(envs_dir.join("prod")).unwrap();
+
+        let (name, path) = resolve_environment(fleet_root, None).unwrap();
+        assert_eq!(name, "prod");
+        assert_eq!(path, envs_dir.join("prod"));
     }
 }
