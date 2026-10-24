@@ -10,6 +10,7 @@ let
     recipientsFor
     allHosts
     ;
+
 in
 {
   "jwt.age".publicKeys = recipientsFor [
@@ -18,7 +19,7 @@ in
     "gotrue"
     "studio"
   ];
-  "db-credentials.age".publicKeys = recipientsFor [
+  "postgres-creds.age".publicKeys = recipientsFor [
     "postgres"
     "pgdog"
     "postgrest"

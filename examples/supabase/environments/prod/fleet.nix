@@ -1,5 +1,6 @@
 {
   settings = {
+    tailscaleLoginServer = "http://10.0.2.2:8080";
     domain = "prod.rocky.internal";
     acmeEmail = "admin@prod.rocky.internal";
   };
@@ -13,26 +14,16 @@
       ];
     };
 
-    "rest" = {
+    "app" = {
       services = {
         "postgrest" = {
           replicas = 3;
           basePort = 3000;
         };
-      };
-    };
-
-    "auth" = {
-      services = {
         "gotrue" = {
           replicas = 2;
           basePort = 9999;
         };
-      };
-    };
-
-    "storage" = {
-      services = {
         "storage" = {
           replicas = 2;
           basePort = 5000;
@@ -40,12 +31,11 @@
       };
     };
 
-    "web" = {
-      services = [ "studio" ];
-    };
-
     "edge" = {
-      services = [ "caddy" ];
+      services = [
+        "caddy"
+        "studio"
+      ];
     };
   };
 }

@@ -9,8 +9,8 @@ let
   secretsDir = ../environments + "/${environment}/secrets";
 in
 {
-  age.secrets."db-credentials" = {
-    file = secretsDir + "/db-credentials.age";
+  age.secrets."postgres-creds" = {
+    file = secretsDir + "/postgres-creds.age";
     mode = "0400";
   };
 
@@ -56,7 +56,7 @@ in
     after = [ "postgresql.service" ];
     requires = [ "postgresql.service" ];
     restartTriggers = [
-      (builtins.hashFile "sha256" (secretsDir + "/db-credentials.age"))
+      (builtins.hashFile "sha256" (secretsDir + "/postgres-creds.age"))
     ];
     serviceConfig = {
       Type = "oneshot";
@@ -77,9 +77,9 @@ in
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
       EOF
 
-      if [ -f ${config.age.secrets."db-credentials".path} ]; then
+      if [ -f ${config.age.secrets."postgres-creds".path} ]; then
         set -a
-        source ${config.age.secrets."db-credentials".path}
+        source ${config.age.secrets."postgres-creds".path}
         set +a
 
         if [ -n "''${POSTGRES_PASSWORD:-}" ]; then

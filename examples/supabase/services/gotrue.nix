@@ -14,7 +14,7 @@ let
   secretsDir = ../environments + "/${environment}/secrets";
   secretNames = [
     "jwt"
-    "db-credentials"
+    "postgres-creds"
   ];
   envFiles = map (n: config.age.secrets.${n}.path) secretNames;
   secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) secretNames;
@@ -26,8 +26,8 @@ in
   age.secrets."jwt" = {
     file = secretsDir + "/jwt.age";
   };
-  age.secrets."db-credentials" = {
-    file = secretsDir + "/db-credentials.age";
+  age.secrets."postgres-creds" = {
+    file = secretsDir + "/postgres-creds.age";
   };
 
   virtualisation.oci-containers.containers = replicateContainers {
