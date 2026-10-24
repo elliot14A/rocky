@@ -17,6 +17,7 @@ use crate::error::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostDeploy {
     pub name: String,
+    pub flake_attr: Option<String>,
     pub hostname: Option<String>,
     pub port: Option<u16>,
 }
@@ -35,7 +36,8 @@ pub fn build_deploy_args(
 ) -> Vec<String> {
     let mut args = Vec::new();
 
-    let flake_target = format!("{}#{}", fleet_root.display(), host.name);
+    let target_attr = host.flake_attr.as_deref().unwrap_or(&host.name);
+    let flake_target = format!("{}#{}", fleet_root.display(), target_attr);
     args.push(flake_target);
 
     if let Some(ref hostname) = host.hostname {
@@ -128,6 +130,7 @@ pub async fn deploy_single(
 ) -> Result<()> {
     let host = HostDeploy {
         name: target.to_string(),
+        flake_attr: None,
         hostname: hostname.map(ToString::to_string),
         port: None,
     };
@@ -277,6 +280,7 @@ mod tests {
     fn test_build_deploy_args_default() {
         let host = HostDeploy {
             name: "web-01".to_string(),
+            flake_attr: None,
             hostname: None,
             port: None,
         };
@@ -286,9 +290,23 @@ mod tests {
     }
 
     #[test]
+    fn test_build_deploy_args_with_custom_flake_attr() {
+        let host = HostDeploy {
+            name: "edge".to_string(),
+            flake_attr: Some("prod-edge".to_string()),
+            hostname: None,
+            port: None,
+        };
+
+        let args = build_deploy_args(&host, Path::new("/fleet"), None);
+        assert_eq!(args, vec!["/fleet#prod-edge"]);
+    }
+
+    #[test]
     fn test_build_deploy_args_with_hostname_and_identity() {
         let host = HostDeploy {
             name: "db-01".to_string(),
+            flake_attr: None,
             hostname: Some("192.168.1.100".to_string()),
             port: None,
         };
@@ -311,6 +329,7 @@ mod tests {
     fn test_build_deploy_args_with_custom_port() {
         let host = HostDeploy {
             name: "edge-01".to_string(),
+            flake_attr: None,
             hostname: Some("10.0.0.1".to_string()),
             port: Some(2222),
         };
@@ -332,6 +351,7 @@ mod tests {
     async fn test_deploy_host_rejects_missing_identity() {
         let host = HostDeploy {
             name: "web-01".to_string(),
+            flake_attr: None,
             hostname: None,
             port: None,
         };

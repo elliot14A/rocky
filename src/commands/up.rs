@@ -170,6 +170,7 @@ async fn install_hosts(
 
         installs.push(HostInstall {
             name: item.host.clone(),
+            flake_attr: Some(format!("{}-{}", plan.environment, item.host)),
             target_ip: item.address.clone(),
             ssh_port: item.port,
             extra_files_dir: key.extra_files_dir.path().to_path_buf(),
@@ -243,6 +244,7 @@ async fn deploy_hosts(
         .iter()
         .map(|item| HostDeploy {
             name: item.host.clone(),
+            flake_attr: Some(format!("{}-{}", plan.environment, item.host)),
             hostname: if item.address == item.host {
                 None
             } else {

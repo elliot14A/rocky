@@ -10,13 +10,14 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 
 use crate::error::{
-    AlreadyExistsSnafu, CommandExecutionSnafu, CommandSignaledSnafu, Kind, NotADirectorySnafu,
-    NotFoundSnafu, ProcessSpawnSnafu, Result,
+    AlreadyExistsSnafu, CommandExecutionSnafu, CommandSignaledSnafu, IoSnafu, Kind,
+    NotADirectorySnafu, NotFoundSnafu, ProcessSpawnSnafu, Result,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostInstall {
     pub name: String,
+    pub flake_attr: Option<String>,
     pub target_ip: String,
     pub ssh_port: u16,
     pub extra_files_dir: PathBuf,
@@ -36,7 +37,8 @@ pub fn build_install_args(
 ) -> Vec<String> {
     let mut args = Vec::new();
 
-    let flake_target = format!("{}#{}", fleet_root.display(), host.name);
+    let target_attr = host.flake_attr.as_deref().unwrap_or(&host.name);
+    let flake_target = format!("{}#{}", fleet_root.display(), target_attr);
     args.push("--flake".to_string());
     args.push(flake_target);
 
@@ -45,6 +47,8 @@ pub fn build_install_args(
 
     if host.ssh_port != 22 {
         args.push("-p".to_string());
+        args.push(host.ssh_port.to_string());
+        args.push("--post-kexec-ssh-port".to_string());
         args.push(host.ssh_port.to_string());
     }
 
@@ -91,22 +95,71 @@ pub async fn install_host(
     );
 
     let abs_identity = crate::ssh::canonicalize_identity(identity)?;
-    let (out_file, err_file) = crate::process::open_log_pair(log_path)?;
-
     let args = build_install_args(host, fleet_root, abs_identity.as_deref());
 
     let mut command = Command::new("nixos-anywhere");
     command.args(&args);
     command.stdin(Stdio::null());
-    command.stdout(Stdio::from(out_file));
-    command.stderr(Stdio::from(err_file));
+    command.stdout(Stdio::piped());
+    command.stderr(Stdio::piped());
     command.kill_on_drop(true);
 
     let mut child = command.spawn().context(ProcessSpawnSnafu {
         command: "nixos-anywhere",
     })?;
 
-    let exit_status = child.wait().await.context(ProcessSpawnSnafu {
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+
+    let log_file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(log_path)
+        .await
+        .context(IoSnafu { path: log_path })?;
+
+    let log_writer = Arc::new(tokio::sync::Mutex::new(log_file));
+
+    let host_name = host.name.clone();
+    let log_writer_stdout = Arc::clone(&log_writer);
+    let stdout_task = tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        if let Some(stdout) = stdout {
+            let mut reader = BufReader::new(stdout).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                let trimmed = line.trim();
+                if trimmed.starts_with("### ") {
+                    let phase = trimmed.trim_matches('#').trim();
+                    crate::ui::info(format!("[{host_name}] {phase}"));
+                }
+                let mut file = log_writer_stdout.lock().await;
+                let _ = file.write_all(line.as_bytes()).await;
+                let _ = file.write_all(b"\n").await;
+            }
+        }
+    });
+
+    let log_writer_stderr = Arc::clone(&log_writer);
+    let stderr_task = tokio::spawn(async move {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        if let Some(stderr) = stderr {
+            let mut reader = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = reader.next_line().await {
+                let mut file = log_writer_stderr.lock().await;
+                let _ = file.write_all(line.as_bytes()).await;
+                let _ = file.write_all(b"\n").await;
+            }
+        }
+    });
+
+    let (exit_status, _, _) = tokio::join!(
+        child.wait(),
+        stdout_task,
+        stderr_task,
+    );
+
+    let exit_status = exit_status.context(ProcessSpawnSnafu {
         command: "nixos-anywhere",
     })?;
 
@@ -283,6 +336,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let host = HostInstall {
             name: "web-01".to_string(),
+            flake_attr: None,
             target_ip: "192.168.1.50".to_string(),
             ssh_port: 22,
             extra_files_dir: dir.path().to_path_buf(),
@@ -309,10 +363,42 @@ mod tests {
     }
 
     #[test]
+    fn test_build_install_args_with_custom_flake_attr() {
+        let dir = tempdir().unwrap();
+        let host = HostInstall {
+            name: "edge".to_string(),
+            flake_attr: Some("prod-edge".to_string()),
+            target_ip: "10.0.0.1".to_string(),
+            ssh_port: 22,
+            extra_files_dir: dir.path().to_path_buf(),
+        };
+
+        let args = build_install_args(&host, Path::new("/fleet"), None);
+
+        assert_eq!(
+            args,
+            vec![
+                "--flake",
+                "/fleet#prod-edge",
+                "--extra-files",
+                dir.path().to_string_lossy().as_ref(),
+                "--ssh-option",
+                "UserKnownHostsFile=/dev/null",
+                "--ssh-option",
+                "StrictHostKeyChecking=accept-new",
+                "--ssh-option",
+                "ForwardAgent=no",
+                "root@10.0.0.1"
+            ]
+        );
+    }
+
+    #[test]
     fn test_build_install_args_custom_port_and_identity() {
         let dir = tempdir().unwrap();
         let host = HostInstall {
             name: "db-01".to_string(),
+            flake_attr: None,
             target_ip: "10.0.0.12".to_string(),
             ssh_port: 2222,
             extra_files_dir: dir.path().to_path_buf(),
@@ -329,6 +415,8 @@ mod tests {
                 "--extra-files",
                 dir.path().to_string_lossy().as_ref(),
                 "-p",
+                "2222",
+                "--post-kexec-ssh-port",
                 "2222",
                 "-i",
                 "/keys/id_ed25519",
@@ -347,6 +435,7 @@ mod tests {
     async fn test_install_host_rejects_missing_extra_files_dir() {
         let host = HostInstall {
             name: "edge-01".to_string(),
+            flake_attr: None,
             target_ip: "1.2.3.4".to_string(),
             ssh_port: 22,
             extra_files_dir: PathBuf::from("/nonexistent/extra-files"),
@@ -361,6 +450,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let host = HostInstall {
             name: "edge-01".to_string(),
+            flake_attr: None,
             target_ip: "1.2.3.4".to_string(),
             ssh_port: 22,
             extra_files_dir: dir.path().to_path_buf(),
@@ -382,12 +472,14 @@ mod tests {
         let hosts = vec![
             HostInstall {
                 name: "host-a".to_string(),
+                flake_attr: None,
                 target_ip: "10.0.0.1".to_string(),
                 ssh_port: 22,
                 extra_files_dir: PathBuf::from("/nonexistent/extra-files-a"),
             },
             HostInstall {
                 name: "host-b".to_string(),
+                flake_attr: None,
                 target_ip: "10.0.0.2".to_string(),
                 ssh_port: 22,
                 extra_files_dir: PathBuf::from("/nonexistent/extra-files-b"),
