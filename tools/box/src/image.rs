@@ -79,6 +79,32 @@ pub async fn ensure_alpine_iso(custom_iso: Option<&Path>) -> Result<PathBuf> {
     Ok(iso_path)
 }
 
+pub async fn ensure_alpine_kernel_and_initrd(iso_path: &Path) -> Result<(PathBuf, PathBuf)> {
+    let cache = cache_dir()?;
+    let kernel_path = cache.join("vmlinuz-virt");
+    let initrd_path = cache.join("initramfs-virt");
+
+    if !kernel_path.exists() || !initrd_path.exists() {
+        let iso_str = iso_path.to_string_lossy();
+        let cache_str = format!("-o{}", cache.display());
+        let _ = rocky::process::exec(
+            "7z",
+            [
+                "e",
+                &iso_str,
+                "boot/vmlinuz-virt",
+                "boot/initramfs-virt",
+                &cache_str,
+                "-y",
+            ],
+            None,
+        )
+        .await;
+    }
+
+    Ok((kernel_path, initrd_path))
+}
+
 fn append_tar_dir<W: std::io::Write>(
     tar: &mut Builder<W>,
     path: &str,
@@ -360,6 +386,9 @@ pub async fn create_seed_apkovl(
         ip addr add 10.0.2.15/24 dev eth0 2>/dev/null || true\n\
         ip route add default via 10.0.2.2 2>/dev/null || true\n\
         echo \"nameserver 10.0.2.3\" > /etc/resolv.conf 2>/dev/null || true\n\
+        echo \"https://dl-cdn.alpinelinux.org/alpine/v3.21/main\" >> /etc/apk/repositories 2>/dev/null || true\n\
+        echo \"https://dl-cdn.alpinelinux.org/alpine/v3.21/community\" >> /etc/apk/repositories 2>/dev/null || true\n\
+        apk add --no-cache bash curl tar util-linux-misc 2>/dev/null || true\n\
         echo \"\" > /dev/ttyS0 2>/dev/null || true\n\
         echo \"=========================================\" > /dev/ttyS0 2>/dev/null || true\n\
         echo \" Rocky Local Test Box Ready              \" > /dev/ttyS0 2>/dev/null || true\n\
