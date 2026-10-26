@@ -4,6 +4,7 @@ pub mod init;
 pub mod mesh;
 pub mod new;
 pub mod secret;
+pub mod ssh;
 pub mod up;
 
 use clap::{Parser, Subcommand};
@@ -41,6 +42,9 @@ pub enum Command {
     /// Manage encrypted fleet secrets
     Secret(secret::SecretArgs),
 
+    /// Connect to a fleet host over the mesh network
+    Ssh(ssh::SshArgs),
+
     /// Deploy and install fleet hosts
     Up(up::UpArgs),
 }
@@ -53,6 +57,7 @@ pub async fn execute(command: Command) -> Result<()> {
         Command::Mesh(args) => mesh::run(args, None).await,
         Command::New(args) => new::run(args).await,
         Command::Secret(args) => secret::run(args, None).await,
+        Command::Ssh(args) => ssh::run(args, None).await,
         Command::Up(args) => up::run(args, None).await,
     }
 }

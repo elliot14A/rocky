@@ -3,6 +3,7 @@ pub mod exec;
 pub mod install;
 pub mod log;
 pub mod mesh;
+pub mod ssh;
 
 pub use deploy::{
     build_deploy_args, deploy_fleet, deploy_host, deploy_single, DeployResult, HostDeploy,
@@ -14,3 +15,4 @@ pub use mesh::{
     check_workstation_tailscale, get_fleet_mesh_status, mesh_join, mesh_leave, resolve_domain,
     resolve_login_server, resolve_or_create_authkey, FleetHostStatus, FleetMeshStatus,
 };
+pub use ssh::{build_ssh_args, execute_ssh, parse_target};
