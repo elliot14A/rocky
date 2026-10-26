@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Command;
 
 use rocky::error::Kind;
 use rocky::ui;
@@ -330,19 +330,35 @@ pub async fn start_box(args: &StartArgs) -> Result<()> {
 
     if args.detach {
         let log_path = b_dir.join("qemu.log");
-        let log_file = File::create(&log_path).context(IoSnafu { path: &log_path })?;
-        let err_file = log_file.try_clone().context(IoSnafu { path: &log_path })?;
+        let mut qemu_args =
+            build_qemu_args(&disk_path, args.port, iso_path.as_deref(), seed_dir.as_deref());
+        if let Some(pos) = qemu_args.iter().position(|a| a == "-nographic") {
+            qemu_args.remove(pos);
+        }
+        qemu_args.push("-display".to_string());
+        qemu_args.push("none".to_string());
+        qemu_args.push("-serial".to_string());
+        qemu_args.push(format!("file:{}", log_path.display()));
+        qemu_args.push("-daemonize".to_string());
+        qemu_args.push("-pidfile".to_string());
+        qemu_args.push(pid_file.display().to_string());
 
-        cmd.stdin(Stdio::null());
-        cmd.stdout(Stdio::from(log_file));
-        cmd.stderr(Stdio::from(err_file));
+        let status = Command::new("qemu-system-x86_64")
+            .args(&qemu_args)
+            .status()
+            .context(ProcessSpawnSnafu {
+                command: "qemu-system-x86_64",
+            })?;
 
-        let child = cmd.spawn().context(ProcessSpawnSnafu {
-            command: "qemu-system-x86_64",
-        })?;
+        if !status.success() {
+            return ProcessSpawnSnafu {
+                command: "qemu-system-x86_64",
+            }
+            .into_error(std::io::Error::other("process exited with failure"))
+            .pipe(Err);
+        }
 
-        let pid = child.id();
-        rocky::fs::write_file(&pid_file, &pid.to_string())?;
+        let pid = read_active_pid(&pid_file)?.unwrap_or(0);
 
         let meta = BoxMeta {
             name: args.name.clone(),
