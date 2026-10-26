@@ -62,5 +62,5 @@ where
     task()
         .await
         .tap_ok(|_| spinner.success(success.as_ref()))
-        .tap_err(|err| spinner.error(err.to_string()))
+        .tap_err(|_| spinner.finish_and_clear())
 }

@@ -37,17 +37,14 @@ where
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let sanitized_stderr = sanitize_sensitive_string(&stderr);
         let display_cmd = if args_vec.is_empty() {
             cmd.to_string()
         } else {
             format!(
                 "{} {}",
                 cmd,
-                args_vec
-                    .iter()
-                    .map(|a| a.to_string_lossy())
-                    .collect::<Vec<_>>()
-                    .join(" ")
+                sanitize_display_args(&args_vec).join(" ")
             )
         };
 
@@ -55,7 +52,7 @@ where
             Some(status) => CommandExecutionSnafu {
                 command: display_cmd,
                 status,
-                stderr,
+                stderr: sanitized_stderr,
                 log_path: None,
             }
             .fail(),
@@ -67,6 +64,53 @@ where
     }
 
     String::from_utf8_lossy(&output.stdout).to_string().pipe(Ok)
+}
+
+fn sanitize_sensitive_string(raw: &str) -> String {
+    // Redact tskey-auth-* patterns from error logs
+    let mut sanitized = raw.to_string();
+    if let Some(start) = sanitized.find("tskey-auth-") {
+        let end = sanitized[start..]
+            .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ',')
+            .map(|offset| start + offset)
+            .unwrap_or(sanitized.len());
+        sanitized.replace_range(start..end, "tskey-auth-[REDACTED]");
+    }
+    sanitized
+}
+
+fn sanitize_display_args(args: &[std::ffi::OsString]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut redact_next = false;
+    for arg in args {
+        let s = arg.to_string_lossy();
+        if redact_next {
+            out.push("[REDACTED]".to_string());
+            redact_next = false;
+            continue;
+        }
+
+        if s == "--authkey" || s == "-authkey" {
+            out.push(s.to_string());
+            redact_next = true;
+            continue;
+        }
+
+        if let Some((k, _)) = s.split_once('=') {
+            let k_lower = k.to_ascii_lowercase();
+            if k_lower.contains("authkey")
+                || k_lower.contains("password")
+                || k_lower.contains("token")
+                || k_lower.contains("secret")
+            {
+                out.push(format!("{k}=[REDACTED]"));
+                continue;
+            }
+        }
+
+        out.push(s.to_string());
+    }
+    out
 }
 
 #[cfg(test)]

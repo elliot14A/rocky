@@ -82,6 +82,9 @@ pub enum RockyError {
         "Invalid key-value syntax on line {line} in secret content: '{line_content}'"
     ))]
     InvalidSecretSyntax { line: usize, line_content: String },
+
+    #[snafu(display("Mesh error: {reason}"))]
+    Mesh { reason: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +96,7 @@ pub enum Kind {
     Host,
     Service,
     Secret,
+    Mesh,
 }
 
 impl std::fmt::Display for Kind {
@@ -105,6 +109,7 @@ impl std::fmt::Display for Kind {
             Self::Host => write!(f, "Host"),
             Self::Service => write!(f, "Service"),
             Self::Secret => write!(f, "Secret"),
+            Self::Mesh => write!(f, "Mesh"),
         }
     }
 }
