@@ -1,6 +1,7 @@
 pub mod check;
 pub mod completion;
 pub mod init;
+pub mod mesh;
 pub mod new;
 pub mod secret;
 pub mod up;
@@ -31,6 +32,9 @@ pub enum Command {
     /// Initialize a new fleet from the official GitHub templates catalog
     Init(init::InitArgs),
 
+    /// Connect, inspect, or leave the fleet mesh network
+    Mesh(mesh::MeshArgs),
+
     /// Scaffold a new entity (host, env, service)
     New(new::NewArgs),
 
@@ -46,6 +50,7 @@ pub async fn execute(command: Command) -> Result<()> {
         Command::Check(args) => check::run(args, None).await,
         Command::Completion(args) => completion::run(args),
         Command::Init(args) => init::run(args).await,
+        Command::Mesh(args) => mesh::run(args, None).await,
         Command::New(args) => new::run(args).await,
         Command::Secret(args) => secret::run(args, None).await,
         Command::Up(args) => up::run(args, None).await,
