@@ -500,6 +500,7 @@ dependencies = [
  "rnix",
  "rowan",
  "rpassword",
+ "serde",
  "serde_json",
  "shlex",
  "snafu",

@@ -49,6 +49,7 @@
               pkgs.age
               pkgs.nixos-anywhere
               pkgs.nixfmt
+              pkgs.headscale
               (if pkgs.stdenv.isLinux then pkgs.qemu_kvm else pkgs.qemu)
             ];
           };
