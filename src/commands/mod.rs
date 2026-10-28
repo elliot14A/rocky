@@ -1,6 +1,7 @@
 pub mod check;
 pub mod completion;
 pub mod init;
+pub mod logs;
 pub mod mesh;
 pub mod new;
 pub mod secret;
@@ -33,6 +34,9 @@ pub enum Command {
     /// Initialize a new fleet from the official GitHub templates catalog
     Init(init::InitArgs),
 
+    /// Stream system and container journal logs over the mesh network
+    Logs(logs::LogsArgs),
+
     /// Connect, inspect, or leave the fleet mesh network
     Mesh(mesh::MeshArgs),
 
@@ -54,6 +58,7 @@ pub async fn execute(command: Command) -> Result<()> {
         Command::Check(args) => check::run(args, None).await,
         Command::Completion(args) => completion::run(args),
         Command::Init(args) => init::run(args).await,
+        Command::Logs(args) => logs::run(args, None).await,
         Command::Mesh(args) => mesh::run(args, None).await,
         Command::New(args) => new::run(args).await,
         Command::Secret(args) => secret::run(args, None).await,
