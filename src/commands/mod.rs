@@ -8,6 +8,7 @@ pub mod mesh;
 pub mod secret;
 pub mod service;
 pub mod ssh;
+pub mod tui;
 pub mod up;
 
 use clap::{Parser, Subcommand};
@@ -57,6 +58,9 @@ pub enum Command {
     /// Connect to a fleet host over the mesh network
     Ssh(ssh::SshArgs),
 
+    /// Launch interactive fleet terminal interface
+    Tui(tui::TuiArgs),
+
     /// Deploy and install fleet hosts
     Up(up::UpArgs),
 }
@@ -73,6 +77,7 @@ pub async fn execute(command: Command) -> Result<()> {
         Command::Secret(args) => secret::run(args, None).await,
         Command::Service(args) => service::run(args, None).await,
         Command::Ssh(args) => ssh::run(args, None).await,
+        Command::Tui(args) => tui::run(args, None).await,
         Command::Up(args) => up::run(args, None).await,
     }
 }
