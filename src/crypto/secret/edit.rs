@@ -49,62 +49,50 @@ pub async fn edit_secret(env_dir: &Path, name: &str, identity: Option<&Path>) ->
     })?;
     let was_key_value = detect_secret_format(&original_content) == SecretFormat::KeyValue;
 
-    let temp_file = tempfile::Builder::new()
+    let mut temp_file = tempfile::Builder::new()
         .prefix("rocky-secret-")
         .tempfile()
         .context(IoSnafu {
             path: env_dir.to_path_buf(),
         })?;
 
+    temp_file
+        .write_all(original_content.as_bytes())
+        .context(IoSnafu {
+            path: temp_file.path().to_path_buf(),
+        })?;
+    temp_file.flush().context(IoSnafu {
+        path: temp_file.path().to_path_buf(),
+    })?;
+
     let temp_path = temp_file.path().to_path_buf();
-    fs::write_file(&temp_path, &original_content)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o600));
     }
 
-    let editor_cmd = std::env::var("VISUAL")
-        .or_else(|_| std::env::var("EDITOR"))
-        .unwrap_or_else(|_| "nano".to_string());
-
-    let parsed_parts = shlex::split(&editor_cmd).unwrap_or_else(|| {
-        editor_cmd
-            .split_whitespace()
-            .map(|s| s.to_string())
-            .collect()
-    });
-    let program = parsed_parts
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "nano".to_string());
-    let args = if parsed_parts.len() > 1 {
-        parsed_parts[1..].to_vec()
-    } else {
-        Vec::new()
-    };
+    let editor = crate::process::editor::resolve_editor();
 
     let updated_content = loop {
-        let mut command = Command::new(&program);
-        for arg in &args {
+        let mut command = Command::new(&editor.program);
+        for arg in &editor.args {
             command.arg(arg);
         }
         command.arg(&temp_path);
         command.stdin(Stdio::inherit());
         command.stdout(Stdio::inherit());
         command.stderr(Stdio::inherit());
+        command.kill_on_drop(true);
 
         let child_future = command.status();
         let status = tokio::select! {
             res = child_future => {
-                res.context(ProcessSpawnSnafu { command: program.clone() })?
+                res.context(ProcessSpawnSnafu { command: editor.program.clone() })?
             }
             _ = tokio::signal::ctrl_c() => {
-                if temp_path.exists() {
-                    let _ = std::fs::remove_file(&temp_path);
-                }
                 return Err(RockyError::CommandExecution {
-                    command: format!("{editor_cmd} {}", temp_path.display()),
+                    command: format!("{} {}", editor.display, temp_path.display()),
                     status: 130,
                     stderr: "Secret edit cancelled by user (SIGINT)".to_string(),
                     log_path: None,
@@ -114,7 +102,7 @@ pub async fn edit_secret(env_dir: &Path, name: &str, identity: Option<&Path>) ->
 
         if !status.success() {
             return CommandExecutionSnafu {
-                command: format!("{editor_cmd} {}", temp_path.display()),
+                command: format!("{} {}", editor.display, temp_path.display()),
                 status: status.code().unwrap_or(1),
                 stderr: "Editor exited with non-zero status; secret edit aborted".to_string(),
                 log_path: None,
