@@ -320,7 +320,6 @@ async fn execute(args: UpArgs, fleet_root: &Path) -> Result<()> {
 
     let interactive = !args.yes
         && !args.non_interactive
-        && std::env::var("ROCKY_NON_INTERACTIVE").is_err()
         && io::stdin().is_terminal()
         && io::stdout().is_terminal();
 
