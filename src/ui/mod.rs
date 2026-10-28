@@ -1,8 +1,7 @@
 pub mod spinner;
-pub mod view;
+pub mod tui;
 
 pub use spinner::{with_spinner, Spinner};
-pub use view::{Panel, ViewState};
 
 use std::io::IsTerminal;
 
