@@ -1,4 +1,5 @@
 pub mod deploy;
+pub mod editor;
 pub mod exec;
 pub mod install;
 pub mod journal;
@@ -9,6 +10,7 @@ pub mod ssh;
 pub use deploy::{
     build_deploy_args, deploy_fleet, deploy_host, deploy_single, DeployResult, HostDeploy,
 };
+pub use editor::run_editor;
 pub use exec::exec;
 pub use install::{build_install_args, install_fleet, install_host, HostInstall, InstallResult};
 pub use journal::{
