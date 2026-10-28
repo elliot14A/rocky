@@ -28,6 +28,8 @@ serde_json = "1.0"
 rpassword = "7.5"
 shlex = "2.0"
 clap_complete = "4.5"
+ratatui = "0.29"
+crossterm = "0.28"
 
 [package]
 name = "rocky"
@@ -50,3 +52,5 @@ serde_json.workspace = true
 rpassword.workspace = true
 shlex.workspace = true
 clap_complete.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true

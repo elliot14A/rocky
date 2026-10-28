@@ -3,6 +3,7 @@ mod diff;
 mod eval;
 mod fleet;
 mod fmt;
+mod inspect;
 mod keys;
 mod plan;
 mod secret;
@@ -15,6 +16,7 @@ pub use fleet::{
     register_host, register_service_to_host, resolve_environment, resolve_secrets_dir, with_fleet,
 };
 pub use fmt::fmt;
+pub use inspect::{inspect_fleet, Environment, Fleet, Host, Secret};
 pub use keys::{extract_public_keys, insert_host_key, register_host_key};
 pub use plan::{build_plan, format_plan, DeployItem, FleetPlan, InstallItem};
 pub use secret::{insert_secret_entry, list_declared_secrets};
