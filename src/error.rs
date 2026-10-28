@@ -69,6 +69,9 @@ pub enum RockyError {
     #[snafu(display("Failed to parse target '{raw}': {reason}"))]
     TargetParse { raw: String, reason: String },
 
+    #[snafu(display("Identity key not specified: pass -i, --identity <path>"))]
+    MissingIdentity,
+
     #[snafu(display("Missing target IP address for host '{host}'"))]
     MissingTargetIp { host: String },
 
@@ -228,6 +231,15 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Failed to parse target 'node-01': expected format HOST=IP[:PORT]"
+        );
+    }
+
+    #[test]
+    fn test_missing_identity_display() {
+        let err = RockyError::MissingIdentity;
+        assert_eq!(
+            err.to_string(),
+            "Identity key not specified: pass -i, --identity <path>"
         );
     }
 

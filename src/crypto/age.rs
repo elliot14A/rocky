@@ -7,8 +7,8 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::error::{
-    CommandExecutionSnafu, CommandSignaledSnafu, InvalidNameSnafu, Kind, NotFoundSnafu,
-    ProcessSpawnSnafu, Result,
+    CommandExecutionSnafu, CommandSignaledSnafu, InvalidNameSnafu, Kind, MissingIdentitySnafu,
+    NotFoundSnafu, ProcessSpawnSnafu, Result,
 };
 
 fn is_valid_recipient(key: &str) -> bool {
@@ -78,6 +78,7 @@ pub async fn encrypt(plaintext: &[u8], recipients: &[String]) -> Result<Vec<u8>>
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .context(ProcessSpawnSnafu { command: "age" })
         .tap_err(|err| tracing::error!(%err, "failed to spawn age encryption"))?;
@@ -116,83 +117,33 @@ pub async fn encrypt(plaintext: &[u8], recipients: &[String]) -> Result<Vec<u8>>
 }
 
 pub async fn decrypt(ciphertext: &[u8], identity_path: Option<&Path>) -> Result<Vec<u8>> {
-    let mut args = vec!["-d".to_string()];
+    let Some(path) = crate::ssh::canonicalize_identity(identity_path)? else {
+        return MissingIdentitySnafu.fail();
+    };
 
-    if let Some(path) = identity_path {
-        ensure!(
-            path.is_file(),
-            NotFoundSnafu {
-                kind: Kind::Secret,
-                name: path.display().to_string(),
-                path: path.to_path_buf(),
-            }
-        );
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = path.metadata() {
-                let mode = meta.permissions().mode();
-                if mode & 0o077 != 0 {
-                    tracing::warn!(
-                        path = %path.display(),
-                        mode = format!("{:o}", mode),
-                        "identity file permissions are too open (expected 0600)"
-                    );
-                }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = path.metadata() {
+            let mode = meta.permissions().mode();
+            if mode & 0o077 != 0 {
+                crate::ui::warn(format!(
+                    "Identity file '{}' permissions are too open (0{:o}); expected 0600",
+                    path.display(),
+                    mode & 0o777
+                ));
             }
         }
-        args.push("-i".to_string());
-        args.push(path.display().to_string());
-    } else {
-        let mut candidates = Vec::new();
-        let home_default = if let Ok(home) = std::env::var("HOME") {
-            let home_path = PathBuf::from(home);
-            candidates.push(home_path.join(".ssh/id_ed25519"));
-            candidates.push(home_path.join(".ssh/id_rsa"));
-            candidates.push(home_path.join(".config/age/keys.txt"));
-            home_path.join(".ssh/id_ed25519")
-        } else {
-            PathBuf::from(".ssh/id_ed25519")
-        };
-
-        let mut found = false;
-        for candidate in candidates {
-            if candidate.is_file() && std::fs::File::open(&candidate).is_ok() {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Ok(meta) = candidate.metadata() {
-                        let mode = meta.permissions().mode();
-                        if mode & 0o077 != 0 {
-                            tracing::warn!(
-                                path = %candidate.display(),
-                                mode = format!("{:o}", mode),
-                                "identity file permissions are too open (expected 0600)"
-                            );
-                        }
-                    }
-                }
-                args.push("-i".to_string());
-                args.push(candidate.display().to_string());
-                found = true;
-            }
-        }
-
-        ensure!(
-            found,
-            NotFoundSnafu {
-                kind: Kind::Secret,
-                name: "default user identity key".to_string(),
-                path: home_default,
-            }
-        );
     }
+
+    let args = vec!["-d".to_string(), "-i".to_string(), path.display().to_string()];
 
     let mut child = Command::new("age")
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()
         .context(ProcessSpawnSnafu { command: "age" })
         .tap_err(|err| tracing::error!(%err, "failed to spawn age decryption"))?;
@@ -309,9 +260,6 @@ mod tests {
     async fn test_decrypt_without_identity_resolves_or_fails_typed() {
         let invalid = b"this is not age ciphertext";
         let res = decrypt(invalid, None).await;
-        assert!(matches!(
-            res,
-            Err(RockyError::NotFound { .. }) | Err(RockyError::CommandExecution { .. })
-        ));
+        assert!(matches!(res, Err(RockyError::MissingIdentity)));
     }
 }
