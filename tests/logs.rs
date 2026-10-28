@@ -4,7 +4,7 @@ use std::fs;
 
 use common::{setup_env_with_hosts, setup_fleet, TestWorkspace};
 use rocky::commands::logs::{self, LogsArgs};
-use rocky::commands::new::service::ServiceKind;
+use rocky::commands::service::ServiceKind;
 use rocky::process::journal::{
     build_journalctl_args, resolve_service_target, JournalOptions, ResolvedLogTarget,
     ResolvedService,

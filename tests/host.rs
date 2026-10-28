@@ -3,8 +3,12 @@ mod common;
 use std::fs;
 
 use common::{setup_env, setup_fleet, setup_fleet_bare, TestWorkspace};
-use rocky::commands::new::host::{self, HostArgs};
+use rocky::commands::host::{self, new::HostArgs, HostArgs as CliHostArgs, HostCommand};
 use rocky::error::{Kind, RockyError};
+
+async fn run_host(args: HostArgs, target: Option<&std::path::Path>) -> rocky::error::Result<()> {
+    host::run(CliHostArgs { command: HostCommand::New(args) }, target).await
+}
 
 #[tokio::test]
 async fn test_new_host_success_with_provider_and_env() {
@@ -19,7 +23,7 @@ async fn test_new_host_success_with_provider_and_env() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("web-01");
@@ -48,7 +52,7 @@ async fn test_new_host_oracle_provider() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("arm-01");
@@ -70,7 +74,7 @@ async fn test_new_host_auto_selects_single_environment() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("worker-01");
@@ -93,7 +97,7 @@ async fn test_new_host_rejects_ambiguous_environment_when_multiple_exist_and_non
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     match res {
         Err(RockyError::AmbiguousEnvironment { environments }) => {
             assert_eq!(
@@ -117,7 +121,7 @@ async fn test_new_host_rejects_already_existing_host() {
         provider: Some("hetzner".to_string()),
         partition: None,
     };
-    host::run(args1, Some(&fleet_path)).await.unwrap();
+    run_host(args1, Some(&fleet_path)).await.unwrap();
 
     let args2 = HostArgs {
         name: "db-01".to_string(),
@@ -125,7 +129,7 @@ async fn test_new_host_rejects_already_existing_host() {
         provider: Some("hetzner".to_string()),
         partition: None,
     };
-    let res = host::run(args2, Some(&fleet_path)).await;
+    let res = run_host(args2, Some(&fleet_path)).await;
     match res {
         Err(RockyError::AlreadyExists { kind, name, .. }) => {
             assert_eq!(kind, Kind::Host);
@@ -148,7 +152,7 @@ async fn test_new_host_rejects_invalid_name() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     match res {
         Err(RockyError::InvalidName { kind, name }) => {
             assert_eq!(kind, Kind::Host);
@@ -171,7 +175,7 @@ async fn test_new_host_rejects_unsupported_provider() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     match res {
         Err(RockyError::NotFound { kind, name, .. }) => {
             assert_eq!(kind, Kind::Provider);
@@ -194,7 +198,7 @@ async fn test_new_host_rejects_invalid_provider_name() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     match res {
         Err(RockyError::InvalidName { kind, name }) => {
             assert_eq!(kind, Kind::Provider);
@@ -217,7 +221,7 @@ async fn test_new_host_falls_back_to_default_when_provider_and_default_provider_
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("srv-01");
@@ -258,7 +262,7 @@ async fn test_new_host_auto_detects_default_provider_from_flake() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("srv-oracle");
@@ -280,7 +284,7 @@ async fn test_new_host_gvm_provider() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("gcp-01");
@@ -312,7 +316,7 @@ async fn test_new_host_rejects_host_already_declared_in_fleet_nix() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     match res {
         Err(RockyError::AlreadyExists { kind, name, .. }) => {
             assert_eq!(kind, Kind::Host);
@@ -338,7 +342,7 @@ async fn test_new_host_with_partition_flag() {
         partition: Some("disko".to_string()),
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let host_dir = env_dir.join("hosts").join("custom-disk-01");
@@ -362,7 +366,7 @@ async fn test_new_host_rejects_missing_fleet_nix() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     match res {
         Err(RockyError::NotFound { kind, name, .. }) => {
             assert_eq!(kind, Kind::Fleet);
@@ -407,7 +411,7 @@ async fn test_new_host_preserves_comments_and_custom_settings() {
         partition: None,
     };
 
-    let res = host::run(args, Some(&fleet_path)).await;
+    let res = run_host(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "host::run failed: {:?}", res);
 
     let updated_fleet = fs::read_to_string(env_dir.join("fleet.nix")).unwrap();
@@ -422,4 +426,151 @@ async fn test_new_host_preserves_comments_and_custom_settings() {
     assert!(updated_fleet.contains("rocky.corp"));
     assert!(updated_fleet.contains(r#""bastion-01""#));
     assert!(updated_fleet.contains(r#""worker-01""#));
+}
+
+#[tokio::test]
+async fn test_host_list_success() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let _env_dir = setup_env(&fleet_path, "prod");
+
+    let args = HostArgs {
+        name: "node-01".to_string(),
+        env: Some("prod".to_string()),
+        provider: Some("default".to_string()),
+        partition: None,
+    };
+    run_host(args, Some(&fleet_path)).await.unwrap();
+
+    let hosts = host::list::collect_hosts(&fleet_path, None).unwrap();
+    assert_eq!(hosts.len(), 1);
+    assert_eq!(hosts[0].name, "node-01");
+    assert_eq!(hosts[0].environment, "prod");
+
+    let res = host::run(
+        CliHostArgs {
+            command: HostCommand::List(host::list::ListArgs {
+                env: None,
+                env_flag: None,
+            }),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+    assert!(res.is_ok());
+
+    let hosts_filtered = host::list::collect_hosts(&fleet_path, Some("prod")).unwrap();
+    assert_eq!(hosts_filtered.len(), 1);
+    assert_eq!(hosts_filtered[0].name, "node-01");
+
+    let res_filtered = host::run(
+        CliHostArgs {
+            command: HostCommand::List(host::list::ListArgs {
+                env: Some("prod".to_string()),
+                env_flag: None,
+            }),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+    assert!(res_filtered.is_ok());
+}
+
+#[tokio::test]
+async fn test_host_edit_missing_fails() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let _env_dir = setup_env(&fleet_path, "prod");
+
+    let res = host::run(
+        CliHostArgs {
+            command: HostCommand::Edit(host::edit::EditArgs {
+                name: "ghost".to_string(),
+                env: Some("prod".to_string()),
+            }),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+
+    match res {
+        Err(RockyError::NotFound { kind, name, .. }) => {
+            assert_eq!(kind, Kind::Host);
+            assert_eq!(name, "ghost");
+        }
+        other => panic!("expected NotFound Host, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_host_edit_success_with_editor() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let env_dir = setup_env(&fleet_path, "prod");
+
+    let args = HostArgs {
+        name: "node-01".to_string(),
+        env: Some("prod".to_string()),
+        provider: Some("default".to_string()),
+        partition: None,
+    };
+    run_host(args, Some(&fleet_path)).await.unwrap();
+
+    let host_nix = env_dir.join("hosts").join("node-01").join("default.nix");
+
+    // 1. Unchanged exit with /bin/true
+    {
+        let _e = common::ScopedEnvVar::set_editor("true").await;
+        let res = host::run(
+            CliHostArgs {
+                command: HostCommand::Edit(host::edit::EditArgs {
+                    name: "node-01".to_string(),
+                    env: None,
+                }),
+            },
+            Some(&fleet_path),
+        )
+        .await;
+        assert!(res.is_ok());
+    }
+
+    // 2. Test actual file modification on disk
+    {
+        let script = common::create_mock_editor(&ws.path, "# verified host edit comment");
+        let _e = common::ScopedEnvVar::set_editor(script.to_str().unwrap()).await;
+        let res = host::run(
+            CliHostArgs {
+                command: HostCommand::Edit(host::edit::EditArgs {
+                    name: "node-01".to_string(),
+                    env: None,
+                }),
+            },
+            Some(&fleet_path),
+        )
+        .await;
+        assert!(res.is_ok());
+
+        let content = fs::read_to_string(&host_nix).unwrap();
+        assert!(content.contains("# verified host edit comment"));
+    }
+
+    // 3. Test syntax error rollback
+    {
+        let bad_script = common::create_syntax_error_editor(&ws.path);
+        let _e = common::ScopedEnvVar::set_editor(bad_script.to_str().unwrap()).await;
+        let res = host::run(
+            CliHostArgs {
+                command: HostCommand::Edit(host::edit::EditArgs {
+                    name: "node-01".to_string(),
+                    env: None,
+                }),
+            },
+            Some(&fleet_path),
+        )
+        .await;
+        assert!(matches!(res, Err(RockyError::NixParse { .. })));
+
+        let content = fs::read_to_string(&host_nix).unwrap();
+        assert!(!content.contains("broken nix = {"));
+    }
 }

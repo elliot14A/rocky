@@ -3,10 +3,45 @@ mod common;
 use std::fs;
 
 use common::{setup_fleet, TestWorkspace};
-use rocky::commands::new::env::{self, EnvArgs};
-use rocky::commands::new::host::{self, HostArgs};
-use rocky::commands::new::service::{self, ServiceArgs, ServiceKind};
+use rocky::commands::env::{self, new::EnvArgs, EnvArgs as CliEnvArgs, EnvCommand};
+use rocky::commands::host::{self, new::HostArgs, HostArgs as CliHostArgs, HostCommand};
+use rocky::commands::service::{
+    self, new::ServiceArgs, ServiceArgs as CliServiceArgs, ServiceCommand, ServiceKind,
+};
 use rocky::error::{Kind, RockyError};
+
+async fn run_service(
+    args: ServiceArgs,
+    target: Option<&std::path::Path>,
+) -> rocky::error::Result<()> {
+    service::run(
+        CliServiceArgs {
+            command: ServiceCommand::New(args),
+        },
+        target,
+    )
+    .await
+}
+
+async fn run_env(args: EnvArgs, target: Option<&std::path::Path>) -> rocky::error::Result<()> {
+    env::run(
+        CliEnvArgs {
+            command: EnvCommand::New(args),
+        },
+        target,
+    )
+    .await
+}
+
+async fn run_host(args: HostArgs, target: Option<&std::path::Path>) -> rocky::error::Result<()> {
+    host::run(
+        CliHostArgs {
+            command: HostCommand::New(args),
+        },
+        target,
+    )
+    .await
+}
 
 #[tokio::test]
 async fn test_new_service_systemd_default() {
@@ -28,7 +63,7 @@ async fn test_new_service_systemd_default() {
         port: None,
     };
 
-    let res = service::run(args, Some(&fleet_path)).await;
+    let res = run_service(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "service::run failed: {:?}", res);
 
     let service_path = fleet_path.join("services").join("api.nix");
@@ -64,7 +99,7 @@ async fn test_new_service_podman_replicated() {
         port: Some(9999),
     };
 
-    let res = service::run(args, Some(&fleet_path)).await;
+    let res = run_service(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "service::run failed: {:?}", res);
 
     let service_path = fleet_path.join("services").join("worker.nix");
@@ -98,7 +133,7 @@ async fn test_new_service_assigns_to_explicit_host_in_fleet() {
         port: Some(3000),
     };
 
-    let res = service::run(args, Some(&fleet_path)).await;
+    let res = run_service(args, Some(&fleet_path)).await;
     assert!(res.is_ok(), "service::run failed: {:?}", res);
 
     // Verify service file was populated with basePort
@@ -133,7 +168,7 @@ async fn test_new_service_rejects_non_fleet() {
         port: None,
     };
 
-    let res = service::run(args, Some(&empty_dir)).await;
+    let res = run_service(args, Some(&empty_dir)).await;
     assert!(res.is_err());
     match res.unwrap_err() {
         RockyError::NotFound { kind, .. } => {
@@ -171,7 +206,7 @@ async fn test_new_service_rejects_invalid_name() {
             port: None,
         };
 
-        let res = service::run(args, Some(&fleet_path)).await;
+        let res = run_service(args, Some(&fleet_path)).await;
         assert!(res.is_err(), "expected error for name '{name}'");
         match res.unwrap_err() {
             RockyError::InvalidName {
@@ -206,9 +241,9 @@ async fn test_new_service_rejects_already_existing_service() {
         port: None,
     };
 
-    service::run(args.clone(), Some(&fleet_path)).await.unwrap();
+    run_service(args.clone(), Some(&fleet_path)).await.unwrap();
 
-    let res = service::run(args, Some(&fleet_path)).await;
+    let res = run_service(args, Some(&fleet_path)).await;
     assert!(res.is_err());
     match res.unwrap_err() {
         RockyError::AlreadyExists { kind, name, path } => {
@@ -240,7 +275,7 @@ async fn test_new_service_rejects_nonexistent_host_preflight_no_orphan() {
         port: None,
     };
 
-    let res = service::run(args, Some(&fleet_path)).await;
+    let res = run_service(args, Some(&fleet_path)).await;
     assert!(res.is_err());
     match res.unwrap_err() {
         RockyError::NotFound { kind, name, .. } => {
@@ -261,7 +296,7 @@ async fn test_new_service_evaluates_in_nix_fleet() {
     let fleet_path = ws.path.join("rocky");
 
     // 1. Scaffold environment
-    env::run(
+    run_env(
         EnvArgs {
             name: "prod".to_string(),
         },
@@ -271,7 +306,7 @@ async fn test_new_service_evaluates_in_nix_fleet() {
     .unwrap();
 
     // 2. Scaffold host
-    host::run(
+    run_host(
         HostArgs {
             name: "node-01".to_string(),
             env: Some("prod".to_string()),
@@ -284,7 +319,7 @@ async fn test_new_service_evaluates_in_nix_fleet() {
     .unwrap();
 
     // 3. Scaffold service with host assignment directly!
-    service::run(
+    run_service(
         ServiceArgs {
             name: "worker".to_string(),
             host: Some("node-01".to_string()),
@@ -321,4 +356,149 @@ async fn test_new_service_evaluates_in_nix_fleet() {
         output.status.success(),
         "nix flake check failed for fleet with unmodified new service:\n{stderr}"
     );
+}
+
+#[tokio::test]
+async fn test_service_list_success() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+
+    let empty_services = service::list::collect_services(&fleet_path).unwrap();
+    assert!(empty_services.is_empty());
+
+    let res = service::run(
+        CliServiceArgs {
+            command: ServiceCommand::List(service::list::ListArgs {}),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+    assert!(res.is_ok());
+
+    run_service(
+        ServiceArgs {
+            name: "api".to_string(),
+            kind: ServiceKind::Systemd,
+            replicas: 1,
+            host: None,
+            env: None,
+            port: None,
+        },
+        Some(&fleet_path),
+    )
+    .await
+    .unwrap();
+
+    let services = service::list::collect_services(&fleet_path).unwrap();
+    assert_eq!(services.len(), 1);
+    assert_eq!(services[0].name, "api");
+    assert_eq!(services[0].kind, "systemd");
+
+    let res2 = service::run(
+        CliServiceArgs {
+            command: ServiceCommand::List(service::list::ListArgs {}),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+    assert!(res2.is_ok());
+}
+
+#[tokio::test]
+async fn test_service_edit_missing_fails() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+
+    let res = service::run(
+        CliServiceArgs {
+            command: ServiceCommand::Edit(service::edit::EditArgs {
+                name: "missing".to_string(),
+            }),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+
+    match res {
+        Err(RockyError::NotFound { kind, name, .. }) => {
+            assert_eq!(kind, Kind::Service);
+            assert_eq!(name, "missing");
+        }
+        other => panic!("expected NotFound Service, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn test_service_edit_success_with_editor() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+
+    run_service(
+        ServiceArgs {
+            name: "api".to_string(),
+            kind: ServiceKind::Systemd,
+            replicas: 1,
+            host: None,
+            env: None,
+            port: None,
+        },
+        Some(&fleet_path),
+    )
+    .await
+    .unwrap();
+
+    let service_nix = fleet_path.join("services").join("api.nix");
+
+    // 1. Unchanged exit with /bin/true
+    {
+        let _e = common::ScopedEnvVar::set_editor("true").await;
+        let res = service::run(
+            CliServiceArgs {
+                command: ServiceCommand::Edit(service::edit::EditArgs {
+                    name: "api".to_string(),
+                }),
+            },
+            Some(&fleet_path),
+        )
+        .await;
+        assert!(res.is_ok());
+    }
+
+    // 2. Test actual file modification on disk
+    {
+        let script = common::create_mock_editor(&ws.path, "# verified service edit comment");
+        let _e = common::ScopedEnvVar::set_editor(script.to_str().unwrap()).await;
+        let res = service::run(
+            CliServiceArgs {
+                command: ServiceCommand::Edit(service::edit::EditArgs {
+                    name: "api".to_string(),
+                }),
+            },
+            Some(&fleet_path),
+        )
+        .await;
+        assert!(res.is_ok());
+
+        let content = fs::read_to_string(&service_nix).unwrap();
+        assert!(content.contains("# verified service edit comment"));
+    }
+
+    // 3. Test syntax error rollback
+    {
+        let bad_script = common::create_syntax_error_editor(&ws.path);
+        let _e = common::ScopedEnvVar::set_editor(bad_script.to_str().unwrap()).await;
+        let res = service::run(
+            CliServiceArgs {
+                command: ServiceCommand::Edit(service::edit::EditArgs {
+                    name: "api".to_string(),
+                }),
+            },
+            Some(&fleet_path),
+        )
+        .await;
+        assert!(matches!(res, Err(RockyError::NixParse { .. })));
+
+        let content = fs::read_to_string(&service_nix).unwrap();
+        assert!(!content.contains("broken nix = {"));
+    }
 }

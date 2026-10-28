@@ -447,3 +447,65 @@ async fn test_secret_new_comma_separated_services_end_to_end() {
         "secrets.nix missing scoped services: {secrets_nix}"
     );
 }
+
+#[tokio::test]
+async fn test_secret_list_success() {
+    let ws = TestWorkspace::new();
+    let (fleet_path, _key_path, _pubkey) = setup_fleet_with_secrets_env(&ws);
+
+    let empty_secrets = rocky::commands::secret::list::collect_secrets(&fleet_path, None)
+        .await
+        .unwrap();
+    assert!(empty_secrets.is_empty());
+
+    let args = NewArgs {
+        name: "jwt".to_string(),
+        env: Some("prod".to_string()),
+        service: vec![],
+        all_hosts: true,
+        from_file: None,
+        value: Some("JWT_SECRET=supersecret123\n".to_string()),
+    };
+    new::run(args, Some(&fleet_path)).await.unwrap();
+
+    let secrets = rocky::commands::secret::list::collect_secrets(&fleet_path, None)
+        .await
+        .unwrap();
+    assert_eq!(secrets.len(), 1);
+    assert_eq!(secrets[0].name, "jwt.age");
+    assert_eq!(secrets[0].environment, "prod");
+
+    let res = rocky::commands::secret::run(
+        rocky::commands::secret::SecretArgs {
+            command: rocky::commands::secret::SecretCommand::List(
+                rocky::commands::secret::list::ListArgs {
+                    env: None,
+                    env_flag: None,
+                },
+            ),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+    assert!(res.is_ok());
+
+    let secrets_filtered = rocky::commands::secret::list::collect_secrets(&fleet_path, Some("prod"))
+        .await
+        .unwrap();
+    assert_eq!(secrets_filtered.len(), 1);
+    assert_eq!(secrets_filtered[0].name, "jwt.age");
+
+    let res_filtered = rocky::commands::secret::run(
+        rocky::commands::secret::SecretArgs {
+            command: rocky::commands::secret::SecretCommand::List(
+                rocky::commands::secret::list::ListArgs {
+                    env: Some("prod".to_string()),
+                    env_flag: None,
+                },
+            ),
+        },
+        Some(&fleet_path),
+    )
+    .await;
+    assert!(res_filtered.is_ok());
+}
