@@ -67,14 +67,19 @@ where
 }
 
 fn sanitize_sensitive_string(raw: &str) -> String {
-    // Redact tskey-auth-* patterns from error logs
     let mut sanitized = raw.to_string();
-    if let Some(start) = sanitized.find("tskey-auth-") {
-        let end = sanitized[start..]
-            .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ',')
-            .map(|offset| start + offset)
-            .unwrap_or(sanitized.len());
-        sanitized.replace_range(start..end, "tskey-auth-[REDACTED]");
+    for prefix in &["tskey-auth-", "hskey-auth-"] {
+        let mut search_from = 0;
+        while let Some(rel_start) = sanitized[search_from..].find(prefix) {
+            let start = search_from + rel_start;
+            let rel_end = sanitized[start..]
+                .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ',')
+                .unwrap_or(sanitized[start..].len());
+            let end = start + rel_end;
+            let replacement = "[AUTHKEY-REDACTED]";
+            sanitized.replace_range(start..end, replacement);
+            search_from = start + replacement.len();
+        }
     }
     sanitized
 }
@@ -134,5 +139,22 @@ mod tests {
     async fn test_exec_spawn_error_on_nonexistent_binary() {
         let res = exec("nonexistent_binary_xyz_123", [] as [&str; 0], None).await;
         assert!(res.is_err());
+    }
+
+    #[test]
+    fn test_sanitize_sensitive_string_redacts_authkeys() {
+        let raw = "error: tailscale up --authkey tskey-auth-k123456789 --login-server https://headscale.foo";
+        let sanitized = sanitize_sensitive_string(raw);
+        assert_eq!(
+            sanitized,
+            "error: tailscale up --authkey [AUTHKEY-REDACTED] --login-server https://headscale.foo"
+        );
+
+        let multiple = "first: tskey-auth-1234, second: hskey-auth-5678, done";
+        let sanitized_mult = sanitize_sensitive_string(multiple);
+        assert_eq!(
+            sanitized_mult,
+            "first: [AUTHKEY-REDACTED], second: [AUTHKEY-REDACTED], done"
+        );
     }
 }
