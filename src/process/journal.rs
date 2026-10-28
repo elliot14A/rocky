@@ -4,8 +4,8 @@ use rnix::ast::HasEntry;
 use snafu::ensure;
 use tap::prelude::*;
 
-use crate::commands::new::service::ServiceKind;
 use crate::error::{Kind, MeshSnafu, NotFoundSnafu, Result};
+use crate::templates::service::ServiceKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedService {
@@ -40,32 +40,13 @@ pub fn detect_service_kind(
     let mut systemd_unit: Option<String> = None;
     let mut nixpkgs_module: Option<String> = None;
 
-    for entry in root_set.attrpath_values() {
-        let Some(attrpath) = entry.attrpath() else {
-            continue;
-        };
-
-        let mut attrs = attrpath.attrs();
-        let first = attrs.next().and_then(|a| crate::nix::attr_to_name(&a));
-        let second = attrs.next().and_then(|a| crate::nix::attr_to_name(&a));
-        let third = attrs.next().and_then(|a| crate::nix::attr_to_name(&a));
-
-        match (first.as_deref(), second.as_deref()) {
-            (Some("virtualisation"), Some("oci-containers")) => {
-                podman_match = true;
-                break;
-            }
-            (Some("systemd"), Some("services")) => {
-                if let Some(unit) = third {
-                    systemd_unit = Some(unit);
-                }
-            }
-            (Some("services"), Some(module)) => {
-                nixpkgs_module = Some(module.to_string());
-            }
-            _ => {}
-        }
-    }
+    scan_attr_set_for_service(
+        &root_set,
+        &[],
+        &mut podman_match,
+        &mut systemd_unit,
+        &mut nixpkgs_module,
+    );
 
     if podman_match {
         return Ok((ServiceKind::Podman, format!("podman-{service_name}")));
@@ -80,6 +61,64 @@ pub fn detect_service_kind(
     }
 
     Ok((ServiceKind::Systemd, service_name.to_string()))
+}
+
+fn scan_attr_set_for_service(
+    attr_set: &rnix::ast::AttrSet,
+    prefix: &[String],
+    podman_match: &mut bool,
+    systemd_unit: &mut Option<String>,
+    nixpkgs_module: &mut Option<String>,
+) {
+    if *podman_match {
+        return;
+    }
+
+    for entry in attr_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+
+        let current_parts: Vec<String> = attrpath
+            .attrs()
+            .filter_map(|a| crate::nix::attr_to_name(&a))
+            .collect();
+
+        let mut full_path = prefix.to_vec();
+        full_path.extend(current_parts);
+
+        let first = full_path.first().map(|s| s.as_str());
+        let second = full_path.get(1).map(|s| s.as_str());
+        let third = full_path.get(2).map(|s| s.as_str());
+
+        match (first, second) {
+            (Some("virtualisation"), Some("oci-containers")) => {
+                *podman_match = true;
+                return;
+            }
+            (Some("systemd"), Some("services")) => {
+                if let (Some(unit), None) = (third, &systemd_unit) {
+                    *systemd_unit = Some(unit.to_string());
+                }
+            }
+            (Some("services"), Some(module)) if nixpkgs_module.is_none() => {
+                *nixpkgs_module = Some(module.to_string());
+            }
+            _ => {}
+        }
+
+        if let Some(val_expr) = entry.value() {
+            if let Some(inner_set) = crate::nix::unwrap_attr_set(val_expr) {
+                scan_attr_set_for_service(
+                    &inner_set,
+                    &full_path,
+                    podman_match,
+                    systemd_unit,
+                    nixpkgs_module,
+                );
+            }
+        }
+    }
 }
 
 pub fn validate_service_exists(fleet_root: &Path, service_name: &str) -> Result<PathBuf> {
@@ -400,6 +439,28 @@ mod tests {
             detect_service_kind("gotrue", src, Path::new("gotrue.nix")).unwrap();
         assert_eq!(kind, ServiceKind::Podman);
         assert_eq!(journal_id, "podman-gotrue");
+    }
+
+    #[test]
+    fn test_detect_service_kind_nested_attrset_podman() {
+        let src = r#"
+        { ... }:
+        {
+          virtualisation = {
+            oci-containers = {
+              containers = {
+                app = {
+                  image = "my-app:latest";
+                };
+              };
+            };
+          };
+        }
+        "#;
+        let (kind, journal_id) =
+            detect_service_kind("app", src, Path::new("app.nix")).unwrap();
+        assert_eq!(kind, ServiceKind::Podman);
+        assert_eq!(journal_id, "podman-app");
     }
 
     #[test]
