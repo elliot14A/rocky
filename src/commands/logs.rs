@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
@@ -16,6 +16,9 @@ pub struct LogsArgs {
 
     #[arg(long, help = "Target specific host within the environment")]
     pub host: Option<String>,
+
+    #[arg(short = 'i', long, help = "Path to SSH private key identity file")]
+    pub identity: Option<PathBuf>,
 
     #[arg(short = 'f', long, help = "Follow journal log output")]
     pub follow: bool,
@@ -51,6 +54,7 @@ pub async fn run(args: LogsArgs, target_dir: Option<&Path>) -> Result<()> {
             &args.env,
             args.service.as_deref(),
             args.host.as_deref(),
+            args.identity.as_deref(),
             &opts,
         )
         .await

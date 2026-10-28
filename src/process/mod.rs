@@ -22,4 +22,4 @@ pub use mesh::{
     check_workstation_tailscale, get_fleet_mesh_status, mesh_join, mesh_leave, resolve_authkey,
     resolve_domain, resolve_login_server, FleetHostStatus, FleetMeshStatus,
 };
-pub use ssh::{build_ssh_args, execute_ssh, parse_target};
+pub use ssh::{build_ssh_args, execute_ssh};

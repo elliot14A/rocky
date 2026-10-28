@@ -18,9 +18,11 @@ let
 
   hasDefaultNoLoginFlag = !(builtins.elem "--login-server=http://headscale.local:8080" (defaultConfig.services.tailscale.extraUpFlags or [ ]));
   hasHeadscaleLoginFlag = builtins.elem "--login-server=http://headscale.local:8080" headscaleConfig.services.tailscale.extraUpFlags;
+  hasSshFlag = builtins.elem "--ssh" (defaultConfig.services.tailscale.extraUpFlags or [ ]);
 in
 assert hasDefaultNoLoginFlag;
 assert hasHeadscaleLoginFlag;
+assert hasSshFlag;
 {
   passed = true;
 }

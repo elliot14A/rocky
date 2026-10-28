@@ -1,73 +1,13 @@
 use std::path::{Path, PathBuf};
 
-use snafu::{IntoError, OptionExt};
+use snafu::{ensure, IntoError};
 
 use crate::error::{Kind, MeshSnafu, NotFoundSnafu, ProcessSpawnSnafu, Result, TargetParseSnafu};
 use crate::process;
 use crate::process::mesh;
 
-pub fn parse_ssh_target(fleet_root: &Path, raw: &str) -> Result<(String, String)> {
-    let envs_dir = fleet_root.join("environments");
-    if let Ok(entries) = std::fs::read_dir(&envs_dir) {
-        let mut env_names: Vec<String> = entries
-            .flatten()
-            .filter(|e| e.path().is_dir())
-            .filter_map(|e| e.file_name().into_string().ok())
-            .filter(|n| !n.starts_with('.'))
-            .collect();
-        env_names.sort_by_key(|b| std::cmp::Reverse(b.len()));
-
-        for env in env_names {
-            let prefix = format!("{env}-");
-            if let Some(host) = raw.strip_prefix(&prefix) {
-                if !host.is_empty() {
-                    return Ok((env, host.to_string()));
-                }
-            }
-        }
-    }
-
-    if let Some((env, host)) = raw.split_once('-') {
-        if !env.is_empty() && !host.is_empty() {
-            return Ok((env.to_string(), host.to_string()));
-        }
-    }
-
-    TargetParseSnafu {
-        raw: raw.to_string(),
-        reason: "expected target in <env>-<host> format (e.g. prod-db)".to_string(),
-    }
-    .fail()
-}
-
-pub use parse_ssh_target as parse_target;
-
-pub fn resolve_identity_key() -> Option<PathBuf> {
-    if let Ok(key) = std::env::var("ROCKY_SSH_KEY") {
-        let p = PathBuf::from(key.trim());
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-
-    let home = std::env::var("HOME").ok().map(PathBuf::from)?;
-    let ssh_dir = home.join(".ssh");
-
-    let candidates = [
-        "agenix_ed25519",
-        "id_ed25519",
-        "id_ecdsa",
-        "id_rsa",
-    ];
-
-    for candidate in candidates {
-        let p = ssh_dir.join(candidate);
-        if p.is_file() {
-            return Some(p);
-        }
-    }
-
-    None
+pub fn resolve_identity_key(explicit: Option<&Path>) -> Result<Option<PathBuf>> {
+    crate::ssh::canonicalize_identity(explicit)
 }
 
 pub async fn resolve_target_address(target: &str, domain: &str) -> String {
@@ -85,11 +25,21 @@ pub async fn resolve_target_address(target: &str, domain: &str) -> String {
     }
 
     // MagicDNS fallback: if domain has an environment prefix, strip it for the MagicDNS suffix
-    let base_domain = domain.trim_start_matches(|c| c != '.').trim_start_matches('.');
-    if !base_domain.is_empty() && !target.ends_with(base_domain) {
-        format!("{target}.{base_domain}")
+    let domain_to_use = if let Some((env, _)) = target.split_once('-') {
+        let env_prefix = format!("{env}.");
+        if let Some(base) = domain.strip_prefix(&env_prefix) {
+            base
+        } else {
+            domain
+        }
     } else {
-        format!("{target}.{domain}")
+        domain
+    };
+
+    if !domain_to_use.is_empty() && !target.ends_with(domain_to_use) {
+        format!("{target}.{domain_to_use}")
+    } else {
+        target.to_string()
     }
 }
 
@@ -103,40 +53,90 @@ pub fn build_ssh_args(
     if let Some(key) = identity_file {
         args.push("-i".to_string());
         args.push(key.to_string_lossy().to_string());
+        args.push("-o".to_string());
+        args.push("IdentitiesOnly=yes".to_string());
     }
     args.push("-o".to_string());
     args.push("ForwardAgent=no".to_string());
     args.push("-o".to_string());
     args.push("StrictHostKeyChecking=accept-new".to_string());
     args.push(format!("{user}@{target_addr}"));
-    args.extend(extra_args.iter().cloned());
+    if !extra_args.is_empty() {
+        args.push("--".to_string());
+        args.extend(extra_args.iter().cloned());
+    }
     args
 }
 
+pub const ROCKY_USER: &str = "rocky";
+
 pub async fn execute_ssh(
     fleet_root: &Path,
-    target_raw: &str,
+    env: &str,
+    target: &str,
+    identity_arg: Option<&Path>,
     extra_args: &[String],
 ) -> Result<()> {
-    let (env, host) = parse_target(fleet_root, target_raw)?;
+    crate::utils::validate::validate_name(Kind::Environment, env)?;
+    let clean_target = target.strip_suffix(".service").unwrap_or(target);
+    crate::utils::validate::validate_name(Kind::Host, clean_target)?;
 
-    let fleet_nix = fleet_root.join("environments").join(&env).join("fleet.nix");
-    fleet_nix.is_file().then_some(()).context(NotFoundSnafu {
-        kind: Kind::Environment,
-        name: env.clone(),
-        path: fleet_root.join("environments").join(&env),
-    })?;
+    let env_dir = fleet_root.join("environments").join(env);
+    ensure!(
+        env_dir.is_dir(),
+        NotFoundSnafu {
+            kind: Kind::Environment,
+            name: env.to_string(),
+            path: env_dir.clone(),
+        }
+    );
+
+    let fleet_nix = env_dir.join("fleet.nix");
+    ensure!(
+        fleet_nix.is_file(),
+        NotFoundSnafu {
+            kind: Kind::Environment,
+            name: env.to_string(),
+            path: env_dir,
+        }
+    );
 
     let content = crate::fs::read_file(&fleet_nix)?;
     let host_map = crate::nix::extract_host_services(&content, &fleet_nix)?;
-    host_map.contains_key(&host).then_some(()).context(NotFoundSnafu {
-        kind: Kind::Host,
-        name: host.clone(),
-        path: fleet_nix.clone(),
-    })?;
 
-    let domain = mesh::resolve_domain(fleet_root, &env).await?;
-    let (is_joined, _) = mesh::check_workstation_tailscale(&domain, &env).await?;
+    let host = if host_map.contains_key(clean_target) {
+        clean_target.to_string()
+    } else {
+        let mut matching_hosts: Vec<String> = host_map
+            .iter()
+            .filter(|(_, services)| services.iter().any(|s| s == clean_target))
+            .map(|(h, _)| h.clone())
+            .collect();
+        matching_hosts.sort();
+
+        if matching_hosts.len() == 1 {
+            matching_hosts[0].clone()
+        } else if matching_hosts.is_empty() {
+            return NotFoundSnafu {
+                kind: Kind::Host,
+                name: clean_target.to_string(),
+                path: fleet_nix,
+            }
+            .fail();
+        } else {
+            return TargetParseSnafu {
+                raw: clean_target.to_string(),
+                reason: format!(
+                    "service '{clean_target}' runs on multiple hosts ({}); specify the host directly",
+                    matching_hosts.join(", ")
+                ),
+            }
+            .fail();
+        }
+    };
+
+    let domain = mesh::resolve_domain(fleet_root, env).await?;
+    let (is_joined, _) = mesh::check_workstation_tailscale(&domain, env).await?;
     if !is_joined {
         return MeshSnafu {
             reason: format!(
@@ -146,11 +146,10 @@ pub async fn execute_ssh(
         .fail();
     }
 
-    let resolved_addr = resolve_target_address(target_raw, &domain).await;
-    let identity = resolve_identity_key();
-    let user = std::env::var("ROCKY_SSH_USER").unwrap_or_else(|_| "rocky".to_string());
-
-    let ssh_args = build_ssh_args(identity.as_deref(), &resolved_addr, &user, extra_args);
+    let mesh_node = format!("{env}-{host}");
+    let resolved_addr = resolve_target_address(&mesh_node, &domain).await;
+    let identity = resolve_identity_key(identity_arg)?;
+    let ssh_args = build_ssh_args(identity.as_deref(), &resolved_addr, ROCKY_USER, extra_args);
     exec_ssh(&ssh_args)
 }
 
@@ -200,40 +199,6 @@ pub fn exec_ssh(args: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn test_parse_target_valid_single_hyphen() {
-        let temp = tempdir().unwrap();
-        let (env, host) = parse_target(temp.path(), "prod-db").unwrap();
-        assert_eq!(env, "prod");
-        assert_eq!(host, "db");
-    }
-
-    #[test]
-    fn test_parse_target_with_existing_environment_prefix() {
-        let temp = tempdir().unwrap();
-        let env_dir = temp.path().join("environments").join("staging-west");
-        std::fs::create_dir_all(&env_dir).unwrap();
-
-        let (env, host) = parse_target(temp.path(), "staging-west-api").unwrap();
-        assert_eq!(env, "staging-west");
-        assert_eq!(host, "api");
-    }
-
-    #[test]
-    fn test_parse_target_missing_hyphen_fails() {
-        let temp = tempdir().unwrap();
-        let err = parse_target(temp.path(), "proddb").unwrap_err();
-        assert!(err.to_string().contains("expected target in <env>-<host> format"));
-    }
-
-    #[test]
-    fn test_parse_target_empty_parts_fail() {
-        let temp = tempdir().unwrap();
-        assert!(parse_target(temp.path(), "-db").is_err());
-        assert!(parse_target(temp.path(), "prod-").is_err());
-    }
 
     #[test]
     fn test_build_ssh_args_with_identity_and_command() {
@@ -247,10 +212,13 @@ mod tests {
                 "-i",
                 "/home/user/.ssh/id_ed25519",
                 "-o",
+                "IdentitiesOnly=yes",
+                "-o",
                 "ForwardAgent=no",
                 "-o",
                 "StrictHostKeyChecking=accept-new",
                 "rocky@100.64.0.2",
+                "--",
                 "uptime",
                 "-v"
             ]
