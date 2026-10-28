@@ -1,4 +1,5 @@
 pub mod edit;
+pub mod list;
 pub mod new;
 pub mod rekey;
 pub mod show;
@@ -20,6 +21,9 @@ pub enum SecretCommand {
     /// Create a new encrypted .age secret and scope recipient keys
     New(new::NewArgs),
 
+    /// List all encrypted secrets in the fleet
+    List(list::ListArgs),
+
     /// Decrypt and display a secret or extract a single key
     Show(show::ShowArgs),
 
@@ -33,6 +37,7 @@ pub enum SecretCommand {
 pub async fn run(args: SecretArgs, target: Option<&Path>) -> Result<()> {
     match args.command {
         SecretCommand::New(args) => new::run(args, target).await,
+        SecretCommand::List(args) => list::run(args, target).await,
         SecretCommand::Show(args) => show::run(args, target).await,
         SecretCommand::Edit(args) => edit::run(args, target).await,
         SecretCommand::Rekey(args) => rekey::run(args, target).await,

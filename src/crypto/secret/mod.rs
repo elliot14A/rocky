@@ -52,6 +52,37 @@ pub(crate) async fn eval_secret_recipients(
     })
 }
 
+pub(crate) async fn eval_all_secret_recipients(
+    secrets_dir: &Path,
+) -> Result<std::collections::HashMap<String, usize>> {
+    let secrets_nix = secrets_dir.join("secrets.nix");
+    if !secrets_nix.is_file() {
+        return Ok(std::collections::HashMap::new());
+    }
+
+    let expr = "let s = import ./secrets.nix; in builtins.mapAttrs (_: val: builtins.length (val.publicKeys or [])) s";
+    let output = process::exec(
+        "nix-instantiate",
+        [
+            "--eval",
+            "--json",
+            "--strict",
+            "--expr",
+            expr,
+        ],
+        Some(secrets_dir),
+    )
+    .await?;
+
+    serde_json::from_str::<std::collections::HashMap<String, usize>>(output.trim()).map_err(|e| {
+        NixParseSnafu {
+            path: secrets_nix,
+            reason: format!("Failed to parse recipient counts from Nix: {e}"),
+        }
+        .build()
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
