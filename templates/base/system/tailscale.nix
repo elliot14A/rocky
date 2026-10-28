@@ -23,7 +23,7 @@ in
   services.tailscale = {
     enable = true;
     authKeyFile = lib.mkIf hasAuthKey config.age.secrets."tailscale-authkey".path;
-    extraUpFlags = loginFlags;
+    extraUpFlags = loginFlags ++ [ "--ssh" ];
   };
 
   services.resolved.enable = true;
