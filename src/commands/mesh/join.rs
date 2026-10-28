@@ -7,10 +7,19 @@ use crate::nix::with_fleet;
 use crate::process::mesh;
 use crate::ui;
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct JoinArgs {
-    #[arg(help = "Environment name to join (e.g. prod, staging)")]
+    #[arg(value_name = "ENV", help = "Environment name to join (e.g. prod, staging)")]
     pub env: Option<String>,
+
+    #[arg(
+        short,
+        long = "env",
+        value_name = "ENV",
+        conflicts_with = "env",
+        help = "Target environment"
+    )]
+    pub env_flag: Option<String>,
 
     #[arg(short, long, help = "Tailscale authkey for authentication")]
     pub authkey: Option<String>,
@@ -22,6 +31,12 @@ pub struct JoinArgs {
     pub force_reauth: bool,
 }
 
+impl JoinArgs {
+    pub fn resolved_env(&self) -> Option<&str> {
+        self.env.as_deref().or(self.env_flag.as_deref())
+    }
+}
+
 pub async fn run(args: JoinArgs, target: Option<&Path>) -> Result<()> {
     with_fleet(target, |fleet_root| async move {
         execute(args, &fleet_root).await
@@ -30,7 +45,7 @@ pub async fn run(args: JoinArgs, target: Option<&Path>) -> Result<()> {
 }
 
 async fn execute(args: JoinArgs, fleet_root: &Path) -> Result<()> {
-    let (env_name, _env_dir) = crate::nix::resolve_environment(fleet_root, args.env.as_deref())?;
+    let (env_name, _env_dir) = crate::nix::resolve_environment(fleet_root, args.resolved_env())?;
     let domain = mesh::resolve_domain(fleet_root, &env_name).await?;
 
     let (is_already_joined, self_ip) =
@@ -54,7 +69,7 @@ async fn execute(args: JoinArgs, fleet_root: &Path) -> Result<()> {
     };
 
     ui::info(format!("Resolving mesh authentication for '{env_name}'..."));
-    let authkey = mesh::resolve_or_create_authkey(&server, args.authkey.as_deref()).await?;
+    let authkey = mesh::resolve_authkey(fleet_root, &env_name, args.authkey.as_deref()).await?;
 
     let force_reauth = args.force_reauth;
     ui::with_spinner(

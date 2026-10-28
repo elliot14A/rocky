@@ -4,7 +4,7 @@ use std::fs;
 
 use common::{setup_fleet, TestWorkspace};
 use rocky::commands::mesh::{self, join::JoinArgs, MeshArgs, MeshCommand};
-use rocky::process::mesh::{resolve_login_server, resolve_or_create_authkey};
+use rocky::process::mesh::{resolve_authkey, resolve_login_server};
 
 #[tokio::test]
 async fn test_mesh_resolve_login_server_from_fleet_nix() {
@@ -67,8 +67,11 @@ async fn test_mesh_resolve_login_server_defaults_to_tailscale_saas() {
 }
 
 #[tokio::test]
-async fn test_mesh_resolve_or_create_authkey_explicit_arg() {
-    let key = resolve_or_create_authkey("https://controlplane.tailscale.com", Some("tskey-auth-test-key"))
+async fn test_mesh_resolve_authkey_explicit_arg() {
+    let _guard = ENV_LOCK.lock().await;
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let key = resolve_authkey(&fleet_path, "prod", Some("tskey-auth-test-key"))
         .await
         .unwrap();
     assert_eq!(key, "tskey-auth-test-key");
@@ -77,15 +80,49 @@ async fn test_mesh_resolve_or_create_authkey_explicit_arg() {
 static ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tokio::test]
-async fn test_mesh_resolve_or_create_authkey_env_var() {
+async fn test_mesh_resolve_authkey_env_var() {
     let _guard = ENV_LOCK.lock().await;
-    std::env::set_var("ROCKY_AUTHKEY", "tskey-auth-from-env");
-    let key = resolve_or_create_authkey("https://controlplane.tailscale.com", None)
+    std::env::set_var("ROCKY_TAILSCALE_AUTHKEY", "tskey-auth-from-env");
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let key = resolve_authkey(&fleet_path, "prod", None)
         .await
         .unwrap();
     assert_eq!(key, "tskey-auth-from-env");
-    std::env::remove_var("ROCKY_AUTHKEY");
+    std::env::remove_var("ROCKY_TAILSCALE_AUTHKEY");
 }
+
+#[tokio::test]
+async fn test_mesh_resolve_authkey_fails_when_secret_missing() {
+    let _guard = ENV_LOCK.lock().await;
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    let env_dir = fleet_path.join("environments").join("prod");
+    fs::create_dir_all(&env_dir).unwrap();
+
+    let err = resolve_authkey(&fleet_path, "prod", None).await.unwrap_err();
+    assert!(
+        err.to_string().contains("Tailscale authkey secret not found"),
+        "expected missing secret error, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_mesh_resolve_authkey_from_encrypted_fleet_secret() {
+    let _guard = ENV_LOCK.lock().await;
+    let fleet_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/supabase");
+    if fleet_path.join("environments/prod/secrets/tailscale-authkey.age").exists() {
+        let key = resolve_authkey(&fleet_path, "prod", None).await.unwrap();
+        assert_eq!(
+            key,
+            "hskey-auth-RSaDG4L5UCP--r_vdP1ugqIpSS_ZEiX5BTWj578JmUcCLZ-deBlMSJTH0sKECPt1SqQPZOjKq-Pmh"
+        );
+    }
+}
+
+
+
+
 
 #[tokio::test]
 async fn test_mesh_join_rejects_missing_environment() {
@@ -95,6 +132,7 @@ async fn test_mesh_join_rejects_missing_environment() {
     let args = MeshArgs {
         command: MeshCommand::Join(JoinArgs {
             env: Some("nonexistent".to_string()),
+            env_flag: None,
             authkey: Some("test-key".to_string()),
             login_server: None,
             force_reauth: false,
@@ -163,9 +201,20 @@ async fn test_mesh_status_command_executes_cleanly() {
     let args = MeshArgs {
         command: MeshCommand::Status(rocky::commands::mesh::status::StatusArgs {
             env: Some("prod".to_string()),
+            env_flag: None,
         }),
     };
 
     let result = mesh::run(args, Some(&fleet_path)).await;
     assert!(result.is_ok());
+
+    let args_with_flag = MeshArgs {
+        command: MeshCommand::Status(rocky::commands::mesh::status::StatusArgs {
+            env: None,
+            env_flag: Some("prod".to_string()),
+        }),
+    };
+
+    let result_flag = mesh::run(args_with_flag, Some(&fleet_path)).await;
+    assert!(result_flag.is_ok());
 }

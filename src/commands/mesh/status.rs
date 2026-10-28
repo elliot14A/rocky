@@ -7,10 +7,25 @@ use crate::nix::with_fleet;
 use crate::process::mesh;
 use crate::ui;
 
-#[derive(Args, Debug, Clone)]
+#[derive(Args, Debug, Clone, Default)]
 pub struct StatusArgs {
-    #[arg(help = "Environment name to check (e.g. prod, staging)")]
+    #[arg(value_name = "ENV", help = "Environment name to check (e.g. prod, staging)")]
     pub env: Option<String>,
+
+    #[arg(
+        short,
+        long = "env",
+        value_name = "ENV",
+        conflicts_with = "env",
+        help = "Target environment"
+    )]
+    pub env_flag: Option<String>,
+}
+
+impl StatusArgs {
+    pub fn resolved_env(&self) -> Option<&str> {
+        self.env.as_deref().or(self.env_flag.as_deref())
+    }
 }
 
 pub async fn run(args: StatusArgs, target: Option<&Path>) -> Result<()> {
@@ -21,7 +36,7 @@ pub async fn run(args: StatusArgs, target: Option<&Path>) -> Result<()> {
 }
 
 async fn execute(args: StatusArgs, fleet_root: &Path) -> Result<()> {
-    let (env_name, _env_dir) = crate::nix::resolve_environment(fleet_root, args.env.as_deref())?;
+    let (env_name, _env_dir) = crate::nix::resolve_environment(fleet_root, args.resolved_env())?;
     let fleet_status = mesh::get_fleet_mesh_status(fleet_root, &env_name).await?;
 
     ui::info(format!("Environment:   {}", fleet_status.environment));

@@ -91,11 +91,14 @@ struct RawNode {
     user_id: Option<serde_json::Value>,
 }
 
-pub fn resolve_headscale_bin() -> String {
+pub fn resolve_headscale_bin() -> Result<String> {
     if let Ok(path) = which_bin("headscale") {
-        return path;
+        return Ok(path);
     }
-    "headscale".to_string()
+    MeshSnafu {
+        reason: "Headscale binary 'headscale' not found in PATH.",
+    }
+    .fail()
 }
 
 fn which_bin(name: &str) -> std::result::Result<String, ()> {
@@ -165,9 +168,8 @@ pub fn parse_headscale_nodes_json(json_str: &str) -> Vec<ControlPlaneNode> {
         .collect()
 }
 
-pub async fn query_headscale_nodes(config_path: &Path) -> HashMap<String, ControlPlaneNode> {
-    let mut map = HashMap::new();
-    let bin = resolve_headscale_bin();
+pub async fn query_headscale_nodes(config_path: &Path) -> Result<HashMap<String, ControlPlaneNode>> {
+    let bin = resolve_headscale_bin()?;
     let args = [
         "--config",
         &config_path.to_string_lossy(),
@@ -177,13 +179,12 @@ pub async fn query_headscale_nodes(config_path: &Path) -> HashMap<String, Contro
         "json",
     ];
 
-    if let Ok(output) = process::exec(&bin, args, None).await {
-        for node in parse_headscale_nodes_json(&output) {
-            map.insert(node.name.clone(), node);
-        }
+    let output = process::exec(&bin, args, None).await?;
+    let mut map = HashMap::new();
+    for node in parse_headscale_nodes_json(&output) {
+        map.insert(node.name.clone(), node);
     }
-
-    map
+    Ok(map)
 }
 
 pub async fn check_workstation_tailscale(
@@ -317,56 +318,76 @@ pub async fn resolve_login_server(fleet_root: &Path, env: &str) -> Result<String
     Ok(server)
 }
 
-pub async fn resolve_or_create_authkey(
-    server: &str,
+pub async fn resolve_authkey(
+    fleet_root: &Path,
+    env: &str,
     explicit_key: Option<&str>,
 ) -> Result<String> {
     if let Some(key) = explicit_key {
-        return Ok(key.trim().to_string());
-    }
-
-    if let Ok(key) = std::env::var("ROCKY_AUTHKEY") {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
         }
     }
 
-    if server.contains("127.0.0.1") || server.contains("localhost") {
-        let home = std::env::var("HOME").unwrap_or_default();
-        let headscale_cfg = PathBuf::from(home).join(".local/state/rocky/headscale/config.yaml");
-
-        if headscale_cfg.is_file() {
-            let bin = resolve_headscale_bin();
-            let out = process::exec(
-                &bin,
-                [
-                    "--config",
-                    &headscale_cfg.to_string_lossy(),
-                    "preauthkeys",
-                    "create",
-                    "-u",
-                    "1",
-                    "-e",
-                    "24h",
-                ],
-                None,
-            )
-            .await;
-
-            if let Ok(k) = out {
-                let trimmed = k.trim().lines().last().unwrap_or_default().trim();
-                if !trimmed.is_empty() {
-                    return Ok(trimmed.to_string());
-                }
-            }
+    if let Ok(key) = std::env::var("ROCKY_TAILSCALE_AUTHKEY") {
+        let trimmed = key.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
         }
     }
 
-    MeshSnafu {
-        reason: "No Tailscale authkey provided. Pass --authkey <key> or set ROCKY_AUTHKEY.",
+    let env_dir = fleet_root.join("environments").join(env);
+    if !env_dir.is_dir() {
+        return MeshSnafu {
+            reason: format!("Environment directory not found at '{}'", env_dir.display()),
+        }
+        .fail();
     }
-    .fail()
+
+    let secrets_dir = crate::nix::resolve_secrets_dir(&env_dir);
+    let secret_path = secrets_dir.join("tailscale-authkey.age");
+    if !secret_path.is_file() {
+        return MeshSnafu {
+            reason: format!(
+                "Tailscale authkey secret not found in environment '{env}'. Expected '{}' to exist, pass --authkey <key>, or set ROCKY_TAILSCALE_AUTHKEY.",
+                secret_path.display()
+            ),
+        }
+        .fail();
+    }
+
+    let ciphertext = crate::fs::read_file_bytes(&secret_path)?;
+    let decrypted = crate::crypto::age::decrypt(&ciphertext, None).await?;
+    let content = String::from_utf8(decrypted).map_err(|e| {
+        MeshSnafu {
+            reason: format!(
+                "Decrypted authkey in '{}' is not valid UTF-8: {e}",
+                secret_path.display()
+            ),
+        }
+        .build()
+    })?;
+
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return MeshSnafu {
+            reason: format!("Secret '{}' is empty", secret_path.display()),
+        }
+        .fail();
+    }
+
+    if crate::crypto::secret::format::has_key_value_entries(trimmed) {
+        return MeshSnafu {
+            reason: format!(
+                "Secret '{}' contains key-value pairs. Tailscale authkey secret must be a raw token, not key-value format.",
+                secret_path.display()
+            ),
+        }
+        .fail();
+    }
+
+    Ok(trimmed.to_string())
 }
 
 pub async fn get_fleet_mesh_status(fleet_root: &Path, env: &str) -> Result<FleetMeshStatus> {
@@ -387,7 +408,7 @@ pub async fn get_fleet_mesh_status(fleet_root: &Path, env: &str) -> Result<Fleet
         let home = std::env::var("HOME").unwrap_or_default();
         let headscale_cfg = PathBuf::from(home).join(".local/state/rocky/headscale/config.yaml");
         if headscale_cfg.is_file() {
-            node_map = query_headscale_nodes(&headscale_cfg).await;
+            node_map = query_headscale_nodes(&headscale_cfg).await?;
         }
     }
 
@@ -466,12 +487,26 @@ pub async fn mesh_join(server: &str, authkey: &str, force_reauth: bool) -> Resul
 }
 
 pub async fn mesh_leave(profile_to_restore: Option<&str>) -> Result<()> {
-    if let Some(target) = profile_to_restore {
-        process::exec("tailscale", ["switch", target], None).await?;
+    let res = if let Some(target) = profile_to_restore {
+        process::exec("tailscale", ["switch", target], None).await
     } else {
-        process::exec("tailscale", ["down"], None).await?;
+        process::exec("tailscale", ["down"], None).await
+    };
+
+    match res {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let msg = e.to_string();
+            if msg.contains("Access denied") {
+                MeshSnafu {
+                    reason: "Tailscaled denied access. Run 'sudo tailscale set --operator=$USER' once to manage Tailscale without root, or run this command with sudo.",
+                }
+                .fail()
+            } else {
+                Err(e)
+            }
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
