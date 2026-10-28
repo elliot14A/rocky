@@ -318,6 +318,7 @@ pub async fn execute_logs(
     env_raw: &str,
     service_raw: Option<&str>,
     explicit_host: Option<&str>,
+    identity_arg: Option<&Path>,
     opts: &JournalOptions,
 ) -> Result<()> {
     if let Some(since) = &opts.since {
@@ -353,8 +354,7 @@ pub async fn execute_logs(
 
     let mesh_node = format!("{env_raw}-{}", target.host);
     let resolved_addr = crate::process::ssh::resolve_target_address(&mesh_node, &domain).await;
-    let identity = crate::process::ssh::resolve_identity_key();
-    let user = std::env::var("ROCKY_SSH_USER").unwrap_or_else(|_| "rocky".to_string());
+    let identity = crate::process::ssh::resolve_identity_key(identity_arg)?;
 
     let journal_args = build_journalctl_args(&target, opts);
     let remote_cmd = shlex::try_join(journal_args.iter().map(|s| s.as_str())).map_err(|_| {
@@ -368,7 +368,7 @@ pub async fn execute_logs(
     let ssh_args = crate::process::ssh::build_ssh_args(
         identity.as_deref(),
         &resolved_addr,
-        &user,
+        crate::process::ssh::ROCKY_USER,
         &[remote_cmd],
     );
 
