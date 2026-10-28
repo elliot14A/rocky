@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
@@ -23,6 +23,9 @@ pub struct JoinArgs {
 
     #[arg(short, long, help = "Tailscale authkey for authentication")]
     pub authkey: Option<String>,
+
+    #[arg(short = 'i', long, help = "Path to SSH private key identity file for decrypting secrets")]
+    pub identity: Option<PathBuf>,
 
     #[arg(long, help = "Override login server URL")]
     pub login_server: Option<String>,
@@ -57,7 +60,7 @@ async fn execute(args: JoinArgs, fleet_root: &Path) -> Result<()> {
         ));
         ui::next_steps(&[
             "Check mesh status:  rocky mesh status".to_string(),
-            format!("Connect to host:    rocky ssh {env_name}-<host>"),
+            format!("Connect to host:    rocky ssh {env_name} <host>"),
             "Disconnect mesh:    rocky mesh leave".to_string(),
         ]);
         return Ok(());
@@ -69,7 +72,13 @@ async fn execute(args: JoinArgs, fleet_root: &Path) -> Result<()> {
     };
 
     ui::info(format!("Resolving mesh authentication for '{env_name}'..."));
-    let authkey = mesh::resolve_authkey(fleet_root, &env_name, args.authkey.as_deref()).await?;
+    let authkey = mesh::resolve_authkey(
+        fleet_root,
+        &env_name,
+        args.authkey.as_deref(),
+        args.identity.as_deref(),
+    )
+    .await?;
 
     let force_reauth = args.force_reauth;
     ui::with_spinner(
@@ -81,7 +90,7 @@ async fn execute(args: JoinArgs, fleet_root: &Path) -> Result<()> {
 
     ui::next_steps(&[
         "Check mesh status:  rocky mesh status".to_string(),
-        format!("Connect to host:    rocky ssh {env_name}-<host>"),
+        format!("Connect to host:    rocky ssh {env_name} <host>"),
         "Disconnect mesh:    rocky mesh leave".to_string(),
     ]);
 

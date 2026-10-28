@@ -278,6 +278,7 @@ pub async fn check_workstation_tailscale(
 }
 
 pub async fn resolve_domain(fleet_root: &Path, env: &str) -> Result<String> {
+    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
     let fleet_nix = fleet_root.join("environments").join(env).join("fleet.nix");
     let expr = format!(
         "let f = import (toString \"{}\"); in f.settings.domain or \"{}.rocky.internal\"",
@@ -298,6 +299,7 @@ pub async fn resolve_domain(fleet_root: &Path, env: &str) -> Result<String> {
 }
 
 pub async fn resolve_login_server(fleet_root: &Path, env: &str) -> Result<String> {
+    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
     let fleet_nix = fleet_root.join("environments").join(env).join("fleet.nix");
     let expr = format!(
         "let f = import (toString \"{}\"); in f.settings.tailscaleLoginServer or null",
@@ -322,15 +324,10 @@ pub async fn resolve_authkey(
     fleet_root: &Path,
     env: &str,
     explicit_key: Option<&str>,
+    identity_path: Option<&Path>,
 ) -> Result<String> {
+    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
     if let Some(key) = explicit_key {
-        let trimmed = key.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
-        }
-    }
-
-    if let Ok(key) = std::env::var("ROCKY_TAILSCALE_AUTHKEY") {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
@@ -350,7 +347,7 @@ pub async fn resolve_authkey(
     if !secret_path.is_file() {
         return MeshSnafu {
             reason: format!(
-                "Tailscale authkey secret not found in environment '{env}'. Expected '{}' to exist, pass --authkey <key>, or set ROCKY_TAILSCALE_AUTHKEY.",
+                "Tailscale authkey secret not found in environment '{env}'. Expected '{}' to exist or pass --authkey <key>.",
                 secret_path.display()
             ),
         }
@@ -358,7 +355,7 @@ pub async fn resolve_authkey(
     }
 
     let ciphertext = crate::fs::read_file_bytes(&secret_path)?;
-    let decrypted = crate::crypto::age::decrypt(&ciphertext, None).await?;
+    let decrypted = crate::crypto::age::decrypt(&ciphertext, identity_path).await?;
     let content = String::from_utf8(decrypted).map_err(|e| {
         MeshSnafu {
             reason: format!(
@@ -391,6 +388,7 @@ pub async fn resolve_authkey(
 }
 
 pub async fn get_fleet_mesh_status(fleet_root: &Path, env: &str) -> Result<FleetMeshStatus> {
+    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
     let fleet_nix = fleet_root.join("environments").join(env).join("fleet.nix");
     let content = crate::fs::read_file(&fleet_nix)?;
     let host_map = crate::nix::extract_host_services(&content, &fleet_nix)?;
