@@ -17,7 +17,7 @@ fn generate_fleet_nix(name: &str) -> String {
     acmeEmail = "admin@{name}.rocky.internal";
   }};
 
-  # Host declarations (added via 'rocky new host <name> --env {name}')
+  # Host declarations (added via 'rocky host new <name> --env {name}')
   hosts = {{ }};
 }}
 "#

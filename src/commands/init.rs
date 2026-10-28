@@ -34,7 +34,7 @@ pub async fn run(args: InitArgs) -> Result<()> {
     (args.path != Path::new(".") && args.path != Path::new(""))
         .then(|| format!("cd {}", args.path.display()))
         .into_iter()
-        .chain(std::iter::once("rocky new env <name>".to_string()))
+        .chain(std::iter::once("rocky env new <name>".to_string()))
         .collect::<Vec<_>>()
         .pipe(|steps| ui::next_steps(&steps));
 

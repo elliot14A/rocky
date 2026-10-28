@@ -1,10 +1,12 @@
 pub mod check;
 pub mod completion;
+pub mod env;
+pub mod host;
 pub mod init;
 pub mod logs;
 pub mod mesh;
-pub mod new;
 pub mod secret;
+pub mod service;
 pub mod ssh;
 pub mod up;
 
@@ -31,6 +33,12 @@ pub enum Command {
     /// Generate shell completion scripts
     Completion(completion::CompletionArgs),
 
+    /// Manage fleet environments
+    Env(env::EnvArgs),
+
+    /// Manage fleet hosts
+    Host(host::HostArgs),
+
     /// Initialize a new fleet from the official GitHub templates catalog
     Init(init::InitArgs),
 
@@ -40,11 +48,11 @@ pub enum Command {
     /// Connect, inspect, or leave the fleet mesh network
     Mesh(mesh::MeshArgs),
 
-    /// Scaffold a new entity (host, env, service)
-    New(new::NewArgs),
-
     /// Manage encrypted fleet secrets
     Secret(secret::SecretArgs),
+
+    /// Manage fleet services
+    Service(service::ServiceArgs),
 
     /// Connect to a fleet host over the mesh network
     Ssh(ssh::SshArgs),
@@ -57,11 +65,13 @@ pub async fn execute(command: Command) -> Result<()> {
     match command {
         Command::Check(args) => check::run(args, None).await,
         Command::Completion(args) => completion::run(args),
+        Command::Env(args) => env::run(args, None).await,
+        Command::Host(args) => host::run(args, None).await,
         Command::Init(args) => init::run(args).await,
         Command::Logs(args) => logs::run(args, None).await,
         Command::Mesh(args) => mesh::run(args, None).await,
-        Command::New(args) => new::run(args).await,
         Command::Secret(args) => secret::run(args, None).await,
+        Command::Service(args) => service::run(args, None).await,
         Command::Ssh(args) => ssh::run(args, None).await,
         Command::Up(args) => up::run(args, None).await,
     }

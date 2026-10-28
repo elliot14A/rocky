@@ -7,19 +7,21 @@ use crate::error::Result;
 use crate::{nix, templates, ui};
 
 #[derive(Args, Debug, Clone)]
-pub struct EnvArgs {
+pub struct NewArgs {
     /// Name of the environment
     pub name: String,
 }
 
-pub async fn run(args: EnvArgs, target: Option<&Path>) -> Result<()> {
+pub type EnvArgs = NewArgs;
+
+pub async fn run(args: NewArgs, target: Option<&Path>) -> Result<()> {
     nix::with_fleet(target, |fleet_root| async move {
         execute(args, &fleet_root).await
     })
     .await
 }
 
-async fn execute(args: EnvArgs, fleet_root: &Path) -> Result<()> {
+async fn execute(args: NewArgs, fleet_root: &Path) -> Result<()> {
     templates::env::create(&args.name, fleet_root)
         .await
         .tap_ok(|_| {
@@ -27,7 +29,7 @@ async fn execute(args: EnvArgs, fleet_root: &Path) -> Result<()> {
 
             ui::next_steps(&[
                 format!(
-                    "Add a host with 'rocky new host <name> --env {}'",
+                    "Add a host with 'rocky host new <name> --env {}'",
                     args.name
                 ),
                 format!("Deploy with 'rocky up {}'", args.name),

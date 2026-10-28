@@ -3,7 +3,7 @@ use std::path::Path;
 use snafu::ensure;
 use tap::prelude::*;
 
-use crate::commands::new::service::ServiceKind;
+use super::kind::ServiceKind;
 use crate::error::{AlreadyExistsSnafu, Kind, NotFoundSnafu, Result};
 use crate::utils::validate::validate_name;
 use crate::{fs, nix};

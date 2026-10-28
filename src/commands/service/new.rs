@@ -1,29 +1,13 @@
 use std::path::Path;
 
-use clap::{Args, ValueEnum};
+use clap::Args;
 
 use crate::error::Result;
-use crate::templates::service::ServiceCreationResult;
+use crate::templates::service::{ServiceCreationResult, ServiceKind};
 use crate::{nix, templates, ui};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-#[value(rename_all = "snake_case")]
-pub enum ServiceKind {
-    Podman,
-    Systemd,
-}
-
-impl std::fmt::Display for ServiceKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Podman => write!(f, "podman"),
-            Self::Systemd => write!(f, "systemd"),
-        }
-    }
-}
-
 #[derive(Args, Debug, Clone)]
-pub struct ServiceArgs {
+pub struct NewArgs {
     /// Name of the service
     pub name: String,
 
@@ -48,14 +32,16 @@ pub struct ServiceArgs {
     pub port: Option<u16>,
 }
 
-pub async fn run(args: ServiceArgs, target: Option<&Path>) -> Result<()> {
+pub type ServiceArgs = NewArgs;
+
+pub async fn run(args: NewArgs, target: Option<&Path>) -> Result<()> {
     nix::with_fleet(target, |fleet_root| async move {
         execute(args, &fleet_root).await
     })
     .await
 }
 
-async fn execute(args: ServiceArgs, fleet_root: &Path) -> Result<()> {
+async fn execute(args: NewArgs, fleet_root: &Path) -> Result<()> {
     let result = templates::service::create(
         &args.name,
         args.kind,
@@ -77,9 +63,8 @@ async fn execute(args: ServiceArgs, fleet_root: &Path) -> Result<()> {
         ServiceCreationResult::MultipleHostsNotice { environment, hosts } => {
             ui::success(format!("Created {} service '{}'", args.kind, args.name));
             ui::info(format!(
-                "Fleet has multiple hosts [{}]. Assign the service with 'rocky new service {} --host <name>' or in environments/{}/fleet.nix",
+                "Fleet has multiple hosts [{}]. Assign the service in environments/{}/fleet.nix or with 'rocky host edit <host>'",
                 hosts.join(", "),
-                args.name,
                 environment
             ));
         }

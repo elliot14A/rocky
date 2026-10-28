@@ -7,7 +7,7 @@ use crate::error::Result;
 use crate::{nix, templates, ui};
 
 #[derive(Args, Debug, Clone)]
-pub struct HostArgs {
+pub struct NewArgs {
     /// Name of the host
     pub name: String,
 
@@ -24,14 +24,16 @@ pub struct HostArgs {
     pub partition: Option<String>,
 }
 
-pub async fn run(args: HostArgs, target: Option<&Path>) -> Result<()> {
+pub type HostArgs = NewArgs;
+
+pub async fn run(args: NewArgs, target: Option<&Path>) -> Result<()> {
     nix::with_fleet(target, |fleet_root| async move {
         execute(args, &fleet_root).await
     })
     .await
 }
 
-async fn execute(args: HostArgs, fleet_root: &Path) -> Result<()> {
+async fn execute(args: NewArgs, fleet_root: &Path) -> Result<()> {
     let _partition = args.partition.as_deref().unwrap_or("disko");
 
     let provider = match args.provider {
