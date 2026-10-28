@@ -87,18 +87,8 @@ pub fn resolve_environment(fleet_root: &Path, env: Option<&str>) -> Result<(Stri
                 .fail();
             }
 
-            let available: Vec<String> = std::fs::read_dir(&envs_dir)
-                .context(IoSnafu {
-                    path: envs_dir.clone(),
-                })?
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| entry.path().is_dir())
-                .filter_map(|entry| entry.file_name().into_string().ok())
-                .filter(|name| {
-                    !name.starts_with('.') && validate_name(Kind::Environment, name).is_ok()
-                })
-                .collect::<Vec<_>>()
-                .tap_mut(|v| v.sort());
+            let available_envs = list_environments(fleet_root)?;
+            let available: Vec<String> = available_envs.into_iter().map(|(name, _)| name).collect();
 
             match available.as_slice() {
                 [single] => single.clone(),
@@ -131,6 +121,33 @@ pub fn resolve_secrets_dir(env_dir: &Path) -> PathBuf {
     } else {
         env_dir.to_path_buf()
     }
+}
+
+pub fn list_environments(fleet_root: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let envs_dir = fleet_root.join("environments");
+    if !envs_dir.is_dir() {
+        return Ok(Vec::new());
+    }
+
+    let entries = std::fs::read_dir(&envs_dir).context(IoSnafu {
+        path: envs_dir.clone(),
+    })?;
+
+    let mut result: Vec<(String, PathBuf)> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_dir())
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            if !name.starts_with('.') && validate_name(Kind::Environment, &name).is_ok() {
+                Some((name, entry.path()))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(result)
 }
 
 use super::ast::{attr_to_name, parse_root_attr_set, unwrap_attr_set};
