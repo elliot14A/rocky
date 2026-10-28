@@ -16,9 +16,9 @@ Rocky manages NixOS servers on cloud VPS providers (Hetzner Cloud and Oracle Clo
 
 ```bash
 # Scaffold
-rocky new env <name>            # environments/<name>/
-rocky new host <env> <name>     # environments/<env>/hosts/<name>/
-rocky new service <name>        # services/<name>.nix
+rocky env new <name>            # environments/<name>/
+rocky host new <name> --env <env> # environments/<env>/hosts/<name>/
+rocky service new <name>         # services/<name>.nix
 
 # Deploy
 rocky up <env>                  # installs uninstalled hosts, rekeys secrets, deploys the fleet

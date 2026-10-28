@@ -18,9 +18,10 @@ Rocky is a minimal deployment tool and CLI for managing NixOS fleets without clu
      - `src/templates/service/create.rs`
    - CLI command files live in `src/commands/` and are thin adapters:
      - `src/commands/init.rs`
-     - `src/commands/new/env.rs`
-     - `src/commands/new/host.rs`
-     - `src/commands/new/service.rs`
+     - `src/commands/env/` (`new.rs`, `list.rs`, `edit.rs`)
+     - `src/commands/host/` (`new.rs`, `list.rs`, `edit.rs`)
+     - `src/commands/service/` (`new.rs`, `list.rs`, `edit.rs`)
+     - `src/commands/secret/` (`new.rs`, `list.rs`, `show.rs`, `edit.rs`, `rekey.rs`)
 
 ## Codebase Searches and Lookups with Graphify
 
