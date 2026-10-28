@@ -5,16 +5,27 @@ use std::fs;
 use common::{setup_fleet, TestWorkspace};
 use rocky::commands::new::env::{self, EnvArgs};
 use rocky::commands::new::host::{self, HostArgs};
-use rocky::commands::new::service::{self, ServiceArgs};
+use rocky::commands::new::service::{self, ServiceArgs, ServiceKind};
 use rocky::error::{Kind, RockyError};
 
 #[tokio::test]
-async fn test_new_service_success() {
+async fn test_new_service_systemd_default() {
     let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
+    common::setup_env_with_hosts(
+        &fleet_path,
+        "prod",
+        "    \"web-01\" = { services = [ ]; };",
+        None,
+    );
 
     let args = ServiceArgs {
         name: "api".to_string(),
+        host: None,
+        env: None,
+        kind: ServiceKind::Systemd,
+        replicas: 1,
+        port: None,
     };
 
     let res = service::run(args, Some(&fleet_path)).await;
@@ -31,7 +42,80 @@ async fn test_new_service_success() {
     assert!(content.contains("fleet,"));
     assert!(content.contains("serviceHost,"));
     assert!(content.contains("systemd.services.api"));
-    assert!(content.contains("virtualisation.oci-containers.containers.api"));
+}
+
+#[tokio::test]
+async fn test_new_service_podman_replicated() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    common::setup_env_with_hosts(
+        &fleet_path,
+        "prod",
+        "    \"web-01\" = { services = [ ]; };",
+        None,
+    );
+
+    let args = ServiceArgs {
+        name: "worker".to_string(),
+        host: None,
+        env: None,
+        kind: ServiceKind::Podman,
+        replicas: 2,
+        port: Some(9999),
+    };
+
+    let res = service::run(args, Some(&fleet_path)).await;
+    assert!(res.is_ok(), "service::run failed: {:?}", res);
+
+    let service_path = fleet_path.join("services").join("worker.nix");
+    assert!(service_path.is_file());
+
+    let content = fs::read_to_string(&service_path).unwrap();
+    assert!(content.contains("replicateContainers"));
+    assert!(content.contains("basePort = 9999;"));
+    assert!(content.contains("containerPort = 9999;"));
+    assert!(content.contains("containerRestartTriggers"));
+}
+
+#[tokio::test]
+async fn test_new_service_assigns_to_explicit_host_in_fleet() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    common::setup_env_with_hosts(
+        &fleet_path,
+        "prod",
+        "    \"web-01\" = { services = [ ]; };",
+        None,
+    );
+
+    // fleet.nix has host "web-01" from setup_fleet
+    let args = ServiceArgs {
+        name: "postgrest".to_string(),
+        host: Some("web-01".to_string()),
+        env: Some("prod".to_string()),
+        kind: ServiceKind::Systemd,
+        replicas: 3,
+        port: Some(3000),
+    };
+
+    let res = service::run(args, Some(&fleet_path)).await;
+    assert!(res.is_ok(), "service::run failed: {:?}", res);
+
+    // Verify service file was populated with basePort
+    let service_path = fleet_path.join("services").join("postgrest.nix");
+    assert!(service_path.is_file());
+    let svc_content = fs::read_to_string(&service_path).unwrap();
+    assert!(svc_content.contains("basePort = 3000;"));
+
+    // Verify fleet.nix was automatically populated with the service assignment!
+    let fleet_nix_path = fleet_path
+        .join("environments")
+        .join("prod")
+        .join("fleet.nix");
+    let fleet_content = fs::read_to_string(&fleet_nix_path).unwrap();
+    assert!(fleet_content.contains("postgrest"));
+    assert!(fleet_content.contains("replicas = 3;"));
+    assert!(fleet_content.contains("basePort = 3000;"));
 }
 
 #[tokio::test]
@@ -42,6 +126,11 @@ async fn test_new_service_rejects_non_fleet() {
 
     let args = ServiceArgs {
         name: "api".to_string(),
+        host: None,
+        env: None,
+        kind: ServiceKind::Systemd,
+        replicas: 1,
+        port: None,
     };
 
     let res = service::run(args, Some(&empty_dir)).await;
@@ -58,6 +147,12 @@ async fn test_new_service_rejects_non_fleet() {
 async fn test_new_service_rejects_invalid_name() {
     let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
+    common::setup_env_with_hosts(
+        &fleet_path,
+        "prod",
+        "    \"web-01\" = { services = [ ]; };",
+        None,
+    );
 
     let invalid_names = [
         "-invalid",
@@ -69,6 +164,11 @@ async fn test_new_service_rejects_invalid_name() {
     for name in invalid_names {
         let args = ServiceArgs {
             name: name.to_string(),
+            host: None,
+            env: None,
+            kind: ServiceKind::Systemd,
+            replicas: 1,
+            port: None,
         };
 
         let res = service::run(args, Some(&fleet_path)).await;
@@ -90,9 +190,20 @@ async fn test_new_service_rejects_invalid_name() {
 async fn test_new_service_rejects_already_existing_service() {
     let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
+    common::setup_env_with_hosts(
+        &fleet_path,
+        "prod",
+        "    \"web-01\" = { services = [ ]; };",
+        None,
+    );
 
     let args = ServiceArgs {
         name: "api".to_string(),
+        host: None,
+        env: None,
+        kind: ServiceKind::Systemd,
+        replicas: 1,
+        port: None,
     };
 
     service::run(args.clone(), Some(&fleet_path)).await.unwrap();
@@ -107,6 +218,40 @@ async fn test_new_service_rejects_already_existing_service() {
         }
         other => panic!("expected AlreadyExists(Kind::Service), got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn test_new_service_rejects_nonexistent_host_preflight_no_orphan() {
+    let ws = TestWorkspace::new();
+    let fleet_path = setup_fleet(&ws);
+    common::setup_env_with_hosts(
+        &fleet_path,
+        "prod",
+        "    \"web-01\" = { services = [ ]; };",
+        None,
+    );
+
+    let args = ServiceArgs {
+        name: "payment".to_string(),
+        host: Some("ghost-node".to_string()),
+        env: Some("prod".to_string()),
+        kind: ServiceKind::Systemd,
+        replicas: 1,
+        port: None,
+    };
+
+    let res = service::run(args, Some(&fleet_path)).await;
+    assert!(res.is_err());
+    match res.unwrap_err() {
+        RockyError::NotFound { kind, name, .. } => {
+            assert_eq!(kind, Kind::Host);
+            assert_eq!(name, "ghost-node");
+        }
+        other => panic!("expected NotFound(Kind::Host), got {other:?}"),
+    }
+
+    // Verify transactional safety: no orphaned service file was created!
+    assert!(!fleet_path.join("services").join("payment.nix").exists());
 }
 
 #[tokio::test]
@@ -138,10 +283,15 @@ async fn test_new_service_evaluates_in_nix_fleet() {
     .await
     .unwrap();
 
-    // 3. Scaffold service
+    // 3. Scaffold service with host assignment directly!
     service::run(
         ServiceArgs {
             name: "worker".to_string(),
+            host: Some("node-01".to_string()),
+            env: Some("prod".to_string()),
+            kind: ServiceKind::Systemd,
+            replicas: 1,
+            port: None,
         },
         Some(&fleet_path),
     )
@@ -151,14 +301,13 @@ async fn test_new_service_evaluates_in_nix_fleet() {
     let service_file = fleet_path.join("services").join("worker.nix");
     assert!(service_file.is_file());
 
-    // 4. Register worker in environments/prod/fleet.nix without modifying the generated template
+    // 4. Verify fleet.nix automatically has the service populated!
     let fleet_nix_path = fleet_path
         .join("environments")
         .join("prod")
         .join("fleet.nix");
     let fleet_nix = fs::read_to_string(&fleet_nix_path).unwrap();
-    let updated_fleet_nix = fleet_nix.replace("services = [ ];", r#"services = [ "worker" ];"#);
-    fs::write(&fleet_nix_path, updated_fleet_nix).unwrap();
+    assert!(fleet_nix.contains("worker"));
 
     // 5. Evaluate flake with nix flake check
     let output = std::process::Command::new("nix")

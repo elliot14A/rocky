@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use rnix::ast::{self, HasEntry};
+use rowan::ast::AstNode;
 use snafu::{OptionExt, ResultExt};
 use tap::prelude::*;
 
@@ -35,7 +36,7 @@ async fn verify_fleet(dir: &Path) -> Result<PathBuf> {
         .then_some(abs_path)
         .context(NotFoundSnafu {
             kind: Kind::Fleet,
-            name: "rocky".to_string(),
+            name: "rocky flake.nix".to_string(),
             path: dir.to_path_buf(),
         })
 }
@@ -248,6 +249,210 @@ pub fn insert_host_entry(content: &str, host_name: &str, path: &Path) -> Result<
 pub async fn register_host(fleet_nix_path: &Path, host_name: &str) -> Result<()> {
     let content = crate::fs::read_file(fleet_nix_path)?;
     let updated = insert_host_entry(&content, host_name, fleet_nix_path)?;
+    crate::fs::write_file(fleet_nix_path, &updated)?;
+    super::fmt([fleet_nix_path]).await?;
+    Ok(())
+}
+
+pub fn insert_service_entry(
+    content: &str,
+    host_name: &str,
+    service_name: &str,
+    replicas: u32,
+    port: Option<u16>,
+    path: &Path,
+) -> Result<String> {
+    validate_name(Kind::Host, host_name)?;
+    validate_name(Kind::Service, service_name)?;
+
+    let root_set = parse_root_attr_set(content, path)?;
+
+    let mut target_host_set: Option<ast::AttrSet> = None;
+
+    for entry in root_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+        let mut attrs = attrpath.attrs();
+        let Some(first_attr) = attrs.next() else {
+            continue;
+        };
+
+        if attr_to_name(&first_attr).as_deref() != Some("hosts") {
+            continue;
+        }
+
+        if let Some(second_attr) = attrs.next() {
+            if attr_to_name(&second_attr).as_deref() == Some(host_name) && attrs.next().is_none() {
+                if let Some(val) = entry.value() {
+                    if let Some(host_set) = unwrap_attr_set(val) {
+                        target_host_set = Some(host_set);
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if let Some(val) = entry.value() {
+            if let Some(hosts_set) = unwrap_attr_set(val) {
+                for inner in hosts_set.attrpath_values() {
+                    let Some(inner_path) = inner.attrpath() else {
+                        continue;
+                    };
+                    let mut inner_attrs = inner_path.attrs();
+                    let Some(first) = inner_attrs.next() else {
+                        continue;
+                    };
+                    if attr_to_name(&first).as_deref() == Some(host_name)
+                        && inner_attrs.next().is_none()
+                    {
+                        if let Some(host_val) = inner.value() {
+                            if let Some(host_set) = unwrap_attr_set(host_val) {
+                                target_host_set = Some(host_set);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let host_set = target_host_set.context(NotFoundSnafu {
+        kind: Kind::Host,
+        name: host_name.to_string(),
+        path: path.to_path_buf(),
+    })?;
+
+    let current_services = extract_services_from_host_set(&host_set);
+    if current_services.iter().any(|s| s == service_name) {
+        return AlreadyExistsSnafu {
+            kind: Kind::Service,
+            name: service_name.to_string(),
+            path: path.to_path_buf(),
+        }
+        .fail();
+    }
+
+    let mut services_entry: Option<ast::AttrpathValue> = None;
+    for entry in host_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+        let mut attrs = attrpath.attrs();
+        let Some(first) = attrs.next() else {
+            continue;
+        };
+        if attr_to_name(&first).as_deref() == Some("services") && attrs.next().is_none() {
+            services_entry = Some(entry);
+            break;
+        }
+    }
+
+    let base_port = port.unwrap_or(8080);
+    let is_replicated = replicas > 1 || port.is_some();
+
+    if let Some(entry) = services_entry {
+        if let Some(val) = entry.value() {
+            let unwrapped = unwrap_parens(val);
+            match unwrapped {
+                ast::Expr::List(list) => {
+                    if is_replicated && list.items().next().is_none() {
+                        let range = entry.syntax().text_range();
+                        let start = usize::from(range.start());
+                        let end = usize::from(range.end());
+                        let snippet = format!(
+                            "services = {{\n      \"{service_name}\" = {{\n        replicas = {replicas};\n        basePort = {base_port};\n      }};\n    }};"
+                        );
+                        let mut updated = content[..start].to_string();
+                        updated.push_str(&snippet);
+                        updated.push_str(&content[end..]);
+                        return verify_syntax(updated, path);
+                    }
+                    let last_tok = list.syntax().last_token().context(NixParseSnafu {
+                        path: path.to_path_buf(),
+                        reason: "missing closing bracket in services list",
+                    })?;
+                    let pos = usize::from(last_tok.text_range().start());
+                    let snippet = if is_replicated {
+                        format!(
+                            "  {{\n        \"{service_name}\" = {{\n          replicas = {replicas};\n          basePort = {base_port};\n        }};\n      }}\n      "
+                        )
+                    } else {
+                        format!("  \"{service_name}\"\n      ")
+                    };
+                    let mut updated = content[..pos].to_string();
+                    if !updated.ends_with('\n') && !updated.ends_with(' ') {
+                        updated.push(' ');
+                    }
+                    updated.push_str(&snippet);
+                    updated.push_str(&content[pos..]);
+                    return verify_syntax(updated, path);
+                }
+                ast::Expr::AttrSet(set) => {
+                    let r_curly = set.r_curly_token().context(NixParseSnafu {
+                        path: path.to_path_buf(),
+                        reason: "missing closing brace in services attrset",
+                    })?;
+                    let pos = usize::from(r_curly.text_range().start());
+                    let snippet = if is_replicated {
+                        format!(
+                            "  \"{service_name}\" = {{\n        replicas = {replicas};\n        basePort = {base_port};\n      }};\n    "
+                        )
+                    } else {
+                        format!("  \"{service_name}\" = {{ }};\n    ")
+                    };
+                    let mut updated = content[..pos].to_string();
+                    if !updated.ends_with('\n') {
+                        updated.push('\n');
+                    }
+                    updated.push_str(&snippet);
+                    updated.push_str(&content[pos..]);
+                    return verify_syntax(updated, path);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let r_curly = host_set.r_curly_token().context(NixParseSnafu {
+        path: path.to_path_buf(),
+        reason: "missing closing brace in host attribute set",
+    })?;
+    let pos = usize::from(r_curly.text_range().start());
+    let snippet = if is_replicated {
+        format!(
+            "  services = {{\n      \"{service_name}\" = {{\n        replicas = {replicas};\n        basePort = {base_port};\n      }};\n    }};\n  "
+        )
+    } else {
+        format!("  services = [\n    \"{service_name}\"\n  ];\n  ")
+    };
+    let mut updated = content[..pos].to_string();
+    if !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(&snippet);
+    updated.push_str(&content[pos..]);
+    verify_syntax(updated, path)
+}
+
+pub async fn register_service_to_host(
+    fleet_nix_path: &Path,
+    host_name: &str,
+    service_name: &str,
+    replicas: u32,
+    port: Option<u16>,
+) -> Result<()> {
+    let content = crate::fs::read_file(fleet_nix_path)?;
+    let updated = insert_service_entry(
+        &content,
+        host_name,
+        service_name,
+        replicas,
+        port,
+        fleet_nix_path,
+    )?;
     crate::fs::write_file(fleet_nix_path, &updated)?;
     super::fmt([fleet_nix_path]).await?;
     Ok(())
@@ -477,9 +682,9 @@ mod tests {
         match res {
             Err(crate::error::RockyError::NotFound { kind, name, .. }) => {
                 assert_eq!(kind, Kind::Fleet);
-                assert_eq!(name, "rocky");
+                assert_eq!(name, "rocky flake.nix");
             }
-            other => panic!("expected NotFound rocky, got {:?}", other),
+            other => panic!("expected NotFound rocky flake.nix, got {:?}", other),
         }
     }
 
@@ -523,9 +728,9 @@ mod tests {
         match res {
             Err(crate::error::RockyError::NotFound { kind, name, .. }) => {
                 assert_eq!(kind, Kind::Fleet);
-                assert_eq!(name, "rocky");
+                assert_eq!(name, "rocky flake.nix");
             }
-            other => panic!("expected NotFound rocky fleet, got {:?}", other),
+            other => panic!("expected NotFound rocky flake.nix, got {:?}", other),
         }
     }
 
@@ -894,5 +1099,152 @@ mod tests {
         let (name, path) = resolve_environment(fleet_root, None).unwrap();
         assert_eq!(name, "prod");
         assert_eq!(path, envs_dir.join("prod"));
+    }
+
+    #[test]
+    fn test_insert_service_entry_single_into_list() {
+        let input = r#"{
+  hosts = {
+    web = {
+      services = [
+        "caddy"
+      ];
+    };
+  };
+}
+"#;
+        let res =
+            insert_service_entry(input, "web", "api", 1, None, Path::new("fleet.nix")).unwrap();
+        assert!(res.contains("\"api\""));
+        assert!(res.contains("\"caddy\""));
+    }
+
+    #[test]
+    fn test_insert_service_entry_replicated_into_empty_list() {
+        let input = r#"{
+  hosts = {
+    app = {
+      services = [ ];
+    };
+  };
+}
+"#;
+        let res = insert_service_entry(
+            input,
+            "app",
+            "postgrest",
+            3,
+            Some(3000),
+            Path::new("fleet.nix"),
+        )
+        .unwrap();
+        assert!(res.contains("\"postgrest\" = {"));
+        assert!(res.contains("replicas = 3;"));
+        assert!(res.contains("basePort = 3000;"));
+    }
+
+    #[test]
+    fn test_insert_service_entry_replicated_into_non_empty_list() {
+        let input = r#"{
+  hosts = {
+    app = {
+      services = [
+        "caddy"
+      ];
+    };
+  };
+}
+"#;
+        let res = insert_service_entry(
+            input,
+            "app",
+            "postgrest",
+            3,
+            Some(3000),
+            Path::new("fleet.nix"),
+        )
+        .unwrap();
+        assert!(res.contains("\"caddy\""));
+        assert!(res.contains("\"postgrest\" = {"));
+        assert!(res.contains("replicas = 3;"));
+        assert!(res.contains("basePort = 3000;"));
+    }
+
+    #[test]
+    fn test_insert_service_entry_into_attrset() {
+        let input = r#"{
+  hosts = {
+    app = {
+      services = {
+        "postgrest" = {
+          replicas = 3;
+          basePort = 3000;
+        };
+      };
+    };
+  };
+}
+"#;
+        let res = insert_service_entry(
+            input,
+            "app",
+            "gotrue",
+            2,
+            Some(9999),
+            Path::new("fleet.nix"),
+        )
+        .unwrap();
+        assert!(res.contains("\"gotrue\" = {"));
+        assert!(res.contains("replicas = 2;"));
+        assert!(res.contains("basePort = 9999;"));
+    }
+
+    #[test]
+    fn test_insert_service_entry_duplicate_rejected() {
+        let input = r#"{
+  hosts = {
+    web = {
+      services = [ "caddy" ];
+    };
+  };
+}
+"#;
+        let res = insert_service_entry(input, "web", "caddy", 1, None, Path::new("fleet.nix"));
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            crate::error::RockyError::AlreadyExists { kind, name, .. } => {
+                assert_eq!(kind, Kind::Service);
+                assert_eq!(name, "caddy");
+            }
+            other => panic!("expected AlreadyExists, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_insert_service_entry_missing_host_rejected() {
+        let input = r#"{
+  hosts = {
+    web = {
+      services = [ ];
+    };
+  };
+}
+"#;
+        let res = insert_service_entry(
+            input,
+            "missing-host",
+            "api",
+            1,
+            None,
+            Path::new("fleet.nix"),
+        );
+        assert!(res.is_err());
+        match res.unwrap_err() {
+            crate::error::RockyError::NotFound { kind, name, .. } => {
+                assert_eq!(kind, Kind::Host);
+                assert_eq!(name, "missing-host");
+            }
+            other => panic!("expected NotFound(Kind::Host), got {:?}", other),
+        }
     }
 }
