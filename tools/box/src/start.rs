@@ -330,8 +330,12 @@ pub async fn start_box(args: &StartArgs) -> Result<()> {
 
     if args.detach {
         let log_path = b_dir.join("qemu.log");
-        let mut qemu_args =
-            build_qemu_args(&disk_path, args.port, iso_path.as_deref(), seed_dir.as_deref());
+        let mut qemu_args = build_qemu_args(
+            &disk_path,
+            args.port,
+            iso_path.as_deref(),
+            seed_dir.as_deref(),
+        );
         if let Some(pos) = qemu_args.iter().position(|a| a == "-nographic") {
             qemu_args.remove(pos);
         }

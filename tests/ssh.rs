@@ -70,7 +70,9 @@ async fn test_ssh_rejects_ambiguous_service_on_multiple_hosts() {
     let result = ssh::run(args, Some(&fleet_path)).await;
     assert!(result.is_err());
     let err_str = result.unwrap_err().to_string();
-    assert!(err_str.contains("service 'api' runs on multiple hosts (node-01, node-02); specify the host directly"));
+    assert!(err_str.contains(
+        "service 'api' runs on multiple hosts (node-01, node-02); specify the host directly"
+    ));
 }
 
 #[tokio::test]
@@ -167,7 +169,6 @@ fn test_ssh_build_args_formatting() {
             "-o",
             "StrictHostKeyChecking=accept-new",
             "rocky@100.64.0.2",
-            "--",
             "-p",
             "2222",
             "uptime"

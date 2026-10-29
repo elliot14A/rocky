@@ -136,7 +136,11 @@ pub async fn decrypt(ciphertext: &[u8], identity_path: Option<&Path>) -> Result<
         }
     }
 
-    let args = vec!["-d".to_string(), "-i".to_string(), path.display().to_string()];
+    let args = vec![
+        "-d".to_string(),
+        "-i".to_string(),
+        path.display().to_string(),
+    ];
 
     let mut child = Command::new("age")
         .args(&args)

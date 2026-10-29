@@ -62,7 +62,6 @@ pub fn build_ssh_args(
     args.push("StrictHostKeyChecking=accept-new".to_string());
     args.push(format!("{user}@{target_addr}"));
     if !extra_args.is_empty() {
-        args.push("--".to_string());
         args.extend(extra_args.iter().cloned());
     }
     args
@@ -218,7 +217,6 @@ mod tests {
                 "-o",
                 "StrictHostKeyChecking=accept-new",
                 "rocky@100.64.0.2",
-                "--",
                 "uptime",
                 "-v"
             ]

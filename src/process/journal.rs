@@ -342,7 +342,8 @@ pub async fn execute_logs(
     let target = resolve_service_target(fleet_root, env_raw, service_raw, explicit_host)?;
 
     let domain = crate::process::mesh::resolve_domain(fleet_root, env_raw).await?;
-    let (is_joined, _) = crate::process::mesh::check_workstation_tailscale(&domain, env_raw).await?;
+    let (is_joined, _) =
+        crate::process::mesh::check_workstation_tailscale(&domain, env_raw).await?;
     if !is_joined {
         return MeshSnafu {
             reason: format!(
@@ -457,8 +458,7 @@ mod tests {
           };
         }
         "#;
-        let (kind, journal_id) =
-            detect_service_kind("app", src, Path::new("app.nix")).unwrap();
+        let (kind, journal_id) = detect_service_kind("app", src, Path::new("app.nix")).unwrap();
         assert_eq!(kind, ServiceKind::Podman);
         assert_eq!(journal_id, "podman-app");
     }

@@ -63,13 +63,7 @@ pub(crate) async fn eval_all_secret_recipients(
     let expr = "let s = import ./secrets.nix; in builtins.mapAttrs (_: val: builtins.length (val.publicKeys or [])) s";
     let output = process::exec(
         "nix-instantiate",
-        [
-            "--eval",
-            "--json",
-            "--strict",
-            "--expr",
-            expr,
-        ],
+        ["--eval", "--json", "--strict", "--expr", expr],
         Some(secrets_dir),
     )
     .await?;

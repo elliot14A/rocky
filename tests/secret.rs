@@ -489,9 +489,10 @@ async fn test_secret_list_success() {
     .await;
     assert!(res.is_ok());
 
-    let secrets_filtered = rocky::commands::secret::list::collect_secrets(&fleet_path, Some("prod"))
-        .await
-        .unwrap();
+    let secrets_filtered =
+        rocky::commands::secret::list::collect_secrets(&fleet_path, Some("prod"))
+            .await
+            .unwrap();
     assert_eq!(secrets_filtered.len(), 1);
     assert_eq!(secrets_filtered[0].name, "jwt.age");
 

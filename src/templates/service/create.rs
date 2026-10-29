@@ -335,8 +335,16 @@ mod tests {
         let dir = tempdir().unwrap();
         let service_path = dir.path().join("services").join("my-service.nix");
 
-        let result =
-            create("my-service", ServiceKind::Systemd, 1, None, None, None, dir.path()).await;
+        let result = create(
+            "my-service",
+            ServiceKind::Systemd,
+            1,
+            None,
+            None,
+            None,
+            dir.path(),
+        )
+        .await;
         assert!(result.is_ok());
         assert!(service_path.is_file());
 
@@ -384,8 +392,16 @@ mod tests {
         .await
         .unwrap();
 
-        let result =
-            create("my-service", ServiceKind::Systemd, 1, None, None, None, dir.path()).await;
+        let result = create(
+            "my-service",
+            ServiceKind::Systemd,
+            1,
+            None,
+            None,
+            None,
+            dir.path(),
+        )
+        .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::error::RockyError::AlreadyExists { kind, name, .. } => {
@@ -405,7 +421,16 @@ mod tests {
         let service_path = services_dir.join("broken.nix");
         std::os::unix::fs::symlink(dir.path().join("nonexistent"), &service_path).unwrap();
 
-        let result = create("broken", ServiceKind::Systemd, 1, None, None, None, dir.path()).await;
+        let result = create(
+            "broken",
+            ServiceKind::Systemd,
+            1,
+            None,
+            None,
+            None,
+            dir.path(),
+        )
+        .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::error::RockyError::AlreadyExists { kind, name, .. } => {
@@ -420,8 +445,16 @@ mod tests {
     async fn test_create_service_rejects_invalid_name() {
         let dir = tempdir().unwrap();
 
-        let result =
-            create("-invalid", ServiceKind::Systemd, 1, None, None, None, dir.path()).await;
+        let result = create(
+            "-invalid",
+            ServiceKind::Systemd,
+            1,
+            None,
+            None,
+            None,
+            dir.path(),
+        )
+        .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             crate::error::RockyError::InvalidName { kind, name } => {
