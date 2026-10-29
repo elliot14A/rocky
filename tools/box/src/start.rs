@@ -5,7 +5,7 @@ use std::process::Command;
 
 use rocky::error::Kind;
 use rocky::ui;
-use rocky::utils::validate_name;
+use rocky::validate_name;
 use snafu::{ensure, IntoError, ResultExt};
 use tap::prelude::*;
 
