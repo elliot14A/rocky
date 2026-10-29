@@ -72,7 +72,10 @@ async fn execute(_args: ListArgs, fleet_root: &Path) -> Result<()> {
     println!("{:-<16} {:-<10} {:-<10}", "", "", "");
 
     for env in environments {
-        println!("{:<16} {:<10} {:<10}", env.name, env.host_count, env.secret_count);
+        println!(
+            "{:<16} {:<10} {:<10}",
+            env.name, env.host_count, env.secret_count
+        );
     }
 
     Ok(())

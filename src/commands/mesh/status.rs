@@ -9,7 +9,10 @@ use crate::ui;
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct StatusArgs {
-    #[arg(value_name = "ENV", help = "Environment name to check (e.g. prod, staging)")]
+    #[arg(
+        value_name = "ENV",
+        help = "Environment name to check (e.g. prod, staging)"
+    )]
     pub env: Option<String>,
 
     #[arg(
@@ -56,10 +59,7 @@ async fn execute(args: StatusArgs, fleet_root: &Path) -> Result<()> {
         "{:<16} {:<10} {:<18} {:<16}",
         "HOST", "STATUS", "MESH IP", "MAGICDNS"
     );
-    println!(
-        "{:-<16} {:-<10} {:-<18} {:-<16}",
-        "", "", "", ""
-    );
+    println!("{:-<16} {:-<10} {:-<18} {:-<16}", "", "", "", "");
 
     for host in &fleet_status.hosts {
         println!(

@@ -41,10 +41,7 @@ pub async fn run(args: ListArgs, target: Option<&Path>) -> Result<()> {
     .await
 }
 
-pub fn collect_hosts(
-    fleet_root: &Path,
-    env_filter: Option<&str>,
-) -> Result<Vec<HostInfo>> {
+pub fn collect_hosts(fleet_root: &Path, env_filter: Option<&str>) -> Result<Vec<HostInfo>> {
     let mut entries = Vec::new();
 
     if let Some(env_name) = env_filter {
@@ -86,7 +83,10 @@ async fn execute(args: ListArgs, fleet_root: &Path) -> Result<()> {
         } else {
             entry.services.join(", ")
         };
-        println!("{:<16} {:<16} {:<32}", entry.name, entry.environment, services_str);
+        println!(
+            "{:<16} {:<16} {:<32}",
+            entry.name, entry.environment, services_str
+        );
     }
 
     Ok(())

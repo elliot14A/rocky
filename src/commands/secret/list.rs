@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use clap::Args;
@@ -32,6 +33,7 @@ pub struct SecretInfo {
     pub name: String,
     pub environment: String,
     pub recipients: String,
+    pub services: Vec<String>,
 }
 
 pub async fn run(args: ListArgs, target: Option<&Path>) -> Result<()> {
@@ -77,7 +79,10 @@ async fn execute(args: ListArgs, fleet_root: &Path) -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<24} {:<16} {:<24}", "SECRET", "ENVIRONMENT", "RECIPIENTS");
+    println!(
+        "{:<24} {:<16} {:<24}",
+        "SECRET", "ENVIRONMENT", "RECIPIENTS"
+    );
     println!("{:-<24} {:-<16} {:-<24}", "", "", "");
 
     for entry in entries {
@@ -90,18 +95,13 @@ async fn execute(args: ListArgs, fleet_root: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn collect_secrets_from_env(
-    env_name: &str,
-    env_dir: &Path,
-    entries: &mut Vec<SecretInfo>,
-) {
+async fn collect_secrets_from_env(env_name: &str, env_dir: &Path, entries: &mut Vec<SecretInfo>) {
     let secrets_dir = nix::resolve_secrets_dir(env_dir);
     if let Ok(dir_entries) = std::fs::read_dir(&secrets_dir) {
         let mut age_files: Vec<String> = dir_entries
             .flatten()
             .filter(|e| {
-                e.path().is_file()
-                    && e.path().extension().and_then(|s| s.to_str()) == Some("age")
+                e.path().is_file() && e.path().extension().and_then(|s| s.to_str()) == Some("age")
             })
             .filter_map(|e| e.file_name().into_string().ok())
             .collect();
@@ -111,6 +111,18 @@ async fn collect_secrets_from_env(
             .await
             .unwrap_or_default();
 
+        let secrets_nix_file = secrets_dir.join("secrets.nix");
+        let services_map = if secrets_nix_file.is_file() {
+            crate::fs::read_file(&secrets_nix_file)
+                .ok()
+                .and_then(|content| {
+                    nix::extract_secret_recipient_services(&content, &secrets_nix_file).ok()
+                })
+                .unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
+
         for file in age_files {
             let recipients = match counts.get(&file) {
                 Some(0) => "0 keys".to_string(),
@@ -118,10 +130,13 @@ async fn collect_secrets_from_env(
                 None => "unregistered".to_string(),
             };
 
+            let svcs = services_map.get(&file).cloned().unwrap_or_default();
+
             entries.push(SecretInfo {
                 name: file,
                 environment: env_name.to_string(),
                 recipients,
+                services: svcs,
             });
         }
     }
