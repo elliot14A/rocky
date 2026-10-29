@@ -200,6 +200,9 @@ mod tests {
     #[tokio::test]
     async fn test_load_fleet_on_real_examples_supabase() {
         let examples_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/supabase");
+        let _guard = crate::commands::check::MockSecretGuard::new(&examples_dir)
+            .await
+            .expect("failed to generate mock secrets");
         let fleet = load_fleet(&examples_dir)
             .await
             .expect("failed to load examples/supabase");
@@ -224,7 +227,7 @@ mod tests {
         assert!(app_host.has_disko);
         assert!(app_host.has_hardware);
 
-        assert_eq!(fleet.services.len(), 8);
+        assert_eq!(fleet.services.len(), 9);
         assert_eq!(prod.secrets.len(), 5);
 
         let gotrue = fleet.services.iter().find(|s| s.name == "gotrue").unwrap();

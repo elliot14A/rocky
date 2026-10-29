@@ -7,7 +7,7 @@ use tracing_subscriber::{fmt, EnvFilter, Layer};
 
 use crate::error::{IoSnafu, Kind, Result};
 use crate::fs;
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
 pub fn init(verbose: bool) {
     let stderr_filter = if verbose {

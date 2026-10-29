@@ -10,7 +10,7 @@ pub fn resolve_identity_key(explicit: Option<&Path>) -> Result<Option<PathBuf>> 
     crate::ssh::canonicalize_identity(explicit)
 }
 
-pub async fn resolve_target_address(target: &str, domain: &str) -> String {
+pub async fn resolve_target_address(target: &str, _domain: &str) -> String {
     let query = tokio::time::timeout(
         std::time::Duration::from_secs(3),
         process::exec("tailscale", ["ip", "-4", target], None),
@@ -24,23 +24,7 @@ pub async fn resolve_target_address(target: &str, domain: &str) -> String {
         }
     }
 
-    // MagicDNS fallback: if domain has an environment prefix, strip it for the MagicDNS suffix
-    let domain_to_use = if let Some((env, _)) = target.split_once('-') {
-        let env_prefix = format!("{env}.");
-        if let Some(base) = domain.strip_prefix(&env_prefix) {
-            base
-        } else {
-            domain
-        }
-    } else {
-        domain
-    };
-
-    if !domain_to_use.is_empty() && !target.ends_with(domain_to_use) {
-        format!("{target}.{domain_to_use}")
-    } else {
-        target.to_string()
-    }
+    target.to_string()
 }
 
 pub fn build_ssh_args(
@@ -76,9 +60,9 @@ pub async fn execute_ssh(
     identity_arg: Option<&Path>,
     extra_args: &[String],
 ) -> Result<()> {
-    crate::utils::validate::validate_name(Kind::Environment, env)?;
+    crate::validate::validate_name(Kind::Environment, env)?;
     let clean_target = target.strip_suffix(".service").unwrap_or(target);
-    crate::utils::validate::validate_name(Kind::Host, clean_target)?;
+    crate::validate::validate_name(Kind::Host, clean_target)?;
 
     let env_dir = fleet_root.join("environments").join(env);
     ensure!(

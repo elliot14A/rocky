@@ -213,9 +213,24 @@ let
   };
 
   assertSingleContainerName = builtins.hasAttr "single-container" singleContainer;
-  assertSingleContainerPort = singleContainer."single-container".ports == [ "8080:80" ];
+  assertSingleContainerNoPorts = !(singleContainer."single-container" ? ports);
+  assertSingleContainerNetworkHost =
+    singleContainer."single-container".extraOptions == [ "--network=host" ];
   assertSingleContainerEnvFile =
     singleContainer."single-container".environmentFiles == [ "/run/agenix/container.env" ];
+
+  bridgeContainer = helpers.replicateContainers {
+    service = "single-container";
+    basePort = 8080;
+    containerPort = 80;
+    mkContainer =
+      { ... }:
+      {
+        image = "docker.io/example/single:latest";
+        extraOptions = [ "--network=bridge" ];
+      };
+  };
+  assertBridgeContainerPort = bridgeContainer."single-container".ports == [ "8080:80" ];
 
   multiContainer = helpers.replicateContainers {
     service = "multi-container";
@@ -225,6 +240,7 @@ let
       { ... }:
       {
         image = "docker.io/example/multi:latest";
+        extraOptions = [ "--network=bridge" ];
       };
   };
 
@@ -291,14 +307,14 @@ let
       {
         image = "docker.io/example/custom:latest";
         volumes = [ "/var/data:/data:ro" ];
-        extraOptions = [ "--cap-add=NET_ADMIN" ];
+        extraOptions = [ "--network=bridge" "--cap-add=NET_ADMIN" ];
       };
   };
 
   assertCustomBindContainer =
     (customBindContainer."single-container".ports == [ "100.64.0.5:9090:90" ])
     && (customBindContainer."single-container".volumes == [ "/var/data:/data:ro" ])
-    && (customBindContainer."single-container".extraOptions == [ "--cap-add=NET_ADMIN" ]);
+    && (customBindContainer."single-container".extraOptions == [ "--network=bridge" "--cap-add=NET_ADMIN" ]);
 
   loopbackBindContainer = helpers.replicateContainers {
     service = "single-container";
@@ -309,6 +325,7 @@ let
       { ... }:
       {
         image = "docker.io/example/loopback:latest";
+        extraOptions = [ "--network=bridge" ];
       };
   };
 
@@ -482,7 +499,9 @@ assert assertMultiWorkerNoPort;
 assert assertCentralPortService;
 
 assert assertSingleContainerName;
-assert assertSingleContainerPort;
+assert assertSingleContainerNoPorts;
+assert assertBridgeContainerPort;
+assert assertSingleContainerNetworkHost;
 assert assertSingleContainerEnvFile;
 
 assert assertMultiContainerNames;

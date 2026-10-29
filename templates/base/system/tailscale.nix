@@ -2,7 +2,6 @@
   config,
   environment,
   fleet ? { },
-  pkgs ? null,
   lib ? {
     mkIf = cond: val: if cond then val else { };
   },

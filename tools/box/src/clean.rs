@@ -1,6 +1,6 @@
 use rocky::error::Kind;
 use rocky::ui;
-use rocky::utils::validate_name;
+use rocky::validate_name;
 use snafu::ResultExt;
 use tap::prelude::*;
 

@@ -71,7 +71,7 @@ pub async fn deploy_host(
     identity: Option<&Path>,
     log_path: &Path,
 ) -> Result<()> {
-    crate::utils::validate::validate_name(Kind::Host, &host.name)?;
+    crate::validate::validate_name(Kind::Host, &host.name)?;
 
     let abs_identity = crate::ssh::canonicalize_identity(identity)?;
     let (out_file, err_file) = crate::process::open_log_pair(log_path)?;

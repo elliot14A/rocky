@@ -1,55 +1,13 @@
 use std::os::unix::fs::PermissionsExt;
-use std::path::{Path, PathBuf};
 
-use snafu::{ensure, ResultExt};
+use snafu::ResultExt;
 use tap::prelude::*;
 
-use crate::error::{InsecurePathSnafu, IoSnafu, Kind, NotFoundSnafu, Result};
+use crate::error::{IoSnafu, Kind, Result};
 use crate::process::exec;
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
-pub fn canonicalize_identity(identity: Option<&Path>) -> Result<Option<PathBuf>> {
-    let Some(id) = identity else {
-        return Ok(None);
-    };
-
-    let id_str = id.to_string_lossy();
-    ensure!(
-        !id_str.chars().any(|c| c == '"'
-            || c == '\''
-            || c == '\\'
-            || c == '$'
-            || c == '`'
-            || c == '\n'
-            || c == '\r'),
-        InsecurePathSnafu {
-            path: id.to_path_buf(),
-            reason: "identity path cannot contain quotes, shell metacharacters, or newlines"
-                .to_string(),
-        }
-    );
-
-    ensure!(
-        id.is_file(),
-        NotFoundSnafu {
-            kind: Kind::Secret,
-            name: id.display().to_string(),
-            path: id.to_path_buf(),
-        }
-    );
-
-    let abs = std::fs::canonicalize(id).unwrap_or_else(|_| {
-        if id.is_relative() {
-            std::env::current_dir()
-                .map(|cwd| cwd.join(id))
-                .unwrap_or_else(|_| id.to_path_buf())
-        } else {
-            id.to_path_buf()
-        }
-    });
-
-    Ok(Some(abs))
-}
+pub use crate::fs::canonicalize_identity;
 
 pub const HOST_KEY_FILE: &str = "ssh_host_ed25519_key";
 pub const HOST_PUB_KEY_FILE: &str = "ssh_host_ed25519_key.pub";
@@ -264,10 +222,30 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let key_file = temp.path().join("id_ed25519");
         std::fs::write(&key_file, "key-content").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&key_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
 
         let resolved = canonicalize_identity(Some(&key_file)).unwrap();
         assert!(resolved.is_some());
         assert!(resolved.unwrap().is_absolute());
+
+        let insecure_key = temp.path().join("id_insecure");
+        std::fs::write(&insecure_key, "key-content").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&insecure_key, std::fs::Permissions::from_mode(0o644))
+                .unwrap();
+            let res = canonicalize_identity(Some(&insecure_key));
+            assert!(res.is_err());
+            match res.unwrap_err() {
+                crate::error::RockyError::InsecurePath { .. } => {}
+                other => panic!("expected InsecurePath, got: {:?}", other),
+            }
+        }
 
         let missing = temp.path().join("missing");
         assert!(canonicalize_identity(Some(&missing)).is_err());

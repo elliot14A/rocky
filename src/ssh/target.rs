@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use snafu::{ensure, OptionExt};
 
 use crate::error::{Kind, Result, TargetParseSnafu};
-use crate::utils::validate_name;
+use crate::validate_name;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {

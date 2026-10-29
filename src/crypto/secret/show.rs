@@ -6,7 +6,7 @@ use tap::prelude::*;
 use crate::crypto::age;
 use crate::crypto::secret::format::extract_key;
 use crate::error::{Kind, NotFoundSnafu, Result, RockyError};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix};
 
 pub async fn show_secret(

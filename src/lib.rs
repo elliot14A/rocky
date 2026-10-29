@@ -8,7 +8,8 @@ pub mod ssh;
 pub mod templates;
 pub mod tui;
 pub mod ui;
-pub mod utils;
+pub mod validate;
 
 pub use commands::Command;
 pub use error::{Kind, Result, RockyError};
+pub use validate::{is_valid_name, validate_name};

@@ -1,8 +1,7 @@
 {
   config,
-  pkgs,
-  serviceHost,
   replicateContainers,
+  replicateServiceLoadBalancer,
   containerRestartTriggers,
   envVars,
   environment,
@@ -16,19 +15,27 @@ let
     "jwt"
     "postgres-creds"
   ];
-  envFiles = map (n: config.age.secrets.${n}.path) secretNames;
-  secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) secretNames;
+  existingSecretNames = builtins.filter (n: builtins.pathExists (secretsDir + "/${n}.age")) secretNames;
+  envFiles = map (n: config.age.secrets.${n}.path) existingSecretNames;
+  secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) existingSecretNames;
 
-  domain = fleet.settings.domain or "prod.rocky.internal";
+  domain = fleet.settings.domain;
   serviceEnv = envVars.gotrue or { };
 in
 {
-  age.secrets."jwt" = {
-    file = secretsDir + "/jwt.age";
+  networking.nftables = replicateServiceLoadBalancer {
+    service = "gotrue";
+    basePort = 9999;
   };
-  age.secrets."postgres-creds" = {
-    file = secretsDir + "/postgres-creds.age";
-  };
+
+  age.secrets = builtins.listToAttrs (
+    map (n: {
+      name = n;
+      value = {
+        file = secretsDir + "/${n}.age";
+      };
+    }) existingSecretNames
+  );
 
   virtualisation.oci-containers.containers = replicateContainers {
     service = "gotrue";
@@ -37,15 +44,14 @@ in
     inherit envFiles;
     mkContainer =
       {
-        index,
         port,
-        name,
+        ...
       }:
       {
         image = "docker.io/supabase/gotrue:v2.158.1";
         environment = serviceEnv // {
           GOTRUE_API_HOST = "0.0.0.0";
-          PORT = "9999";
+          PORT = toString port;
           API_EXTERNAL_URL = "http://${domain}/auth/v1";
           GOTRUE_SITE_URL = "http://${domain}";
           GOTRUE_DB_DRIVER = "postgres";

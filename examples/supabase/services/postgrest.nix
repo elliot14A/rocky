@@ -1,8 +1,8 @@
 {
   config,
   pkgs,
-  serviceHost,
   replicateService,
+  replicateServiceLoadBalancer,
   envVars,
   environment,
   ...
@@ -14,18 +14,26 @@ let
     "jwt"
     "postgres-creds"
   ];
-  envFiles = map (n: config.age.secrets.${n}.path) secretNames;
-  secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) secretNames;
+  existingSecretNames = builtins.filter (n: builtins.pathExists (secretsDir + "/${n}.age")) secretNames;
+  envFiles = map (n: config.age.secrets.${n}.path) existingSecretNames;
+  secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) existingSecretNames;
 
   serviceEnv = envVars.postgrest or { };
 in
 {
-  age.secrets."jwt" = {
-    file = secretsDir + "/jwt.age";
+  networking.nftables = replicateServiceLoadBalancer {
+    service = "postgrest";
+    basePort = 3000;
   };
-  age.secrets."postgres-creds" = {
-    file = secretsDir + "/postgres-creds.age";
-  };
+
+  age.secrets = builtins.listToAttrs (
+    map (n: {
+      name = n;
+      value = {
+        file = secretsDir + "/${n}.age";
+      };
+    }) existingSecretNames
+  );
 
   systemd.services = replicateService {
     service = "postgrest";
@@ -35,7 +43,7 @@ in
       {
         index,
         port,
-        name,
+        ...
       }:
       {
         description = "PostgREST API server replica ${toString index}";

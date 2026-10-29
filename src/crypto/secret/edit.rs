@@ -12,7 +12,7 @@ use crate::crypto::secret::format::{detect_secret_format, validate_key_value, Se
 use crate::error::{
     CommandExecutionSnafu, IoSnafu, Kind, NotFoundSnafu, ProcessSpawnSnafu, Result, RockyError,
 };
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix};
 
 pub async fn edit_secret(env_dir: &Path, name: &str, identity: Option<&Path>) -> Result<bool> {

@@ -5,7 +5,7 @@ use snafu::ensure;
 
 use crate::error::{AmbiguousEnvironmentSnafu, Kind, NotFoundSnafu, Result};
 use crate::process::run_editor;
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{nix, ui};
 
 #[derive(Args, Debug, Clone)]

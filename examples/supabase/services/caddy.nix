@@ -1,38 +1,25 @@
 {
   fleet,
   serviceHost,
-  serviceUpstreams,
-  lib,
   ...
 }:
 
 let
-  domain = fleet.settings.domain or "prod.rocky.internal";
-  acmeEmail = fleet.settings.acmeEmail or "admin@prod.rocky.internal";
+  domain = fleet.settings.domain;
+  acmeEmail = fleet.settings.acmeEmail or "admin@${domain}";
 
-  restUpstreams = serviceUpstreams {
-    service = "postgrest";
-    basePort = 3000;
-  };
-  authUpstreams = serviceUpstreams {
-    service = "gotrue";
-    basePort = 9999;
-  };
-  storageUpstreams = serviceUpstreams {
-    service = "storage";
-    basePort = 5000;
-  };
+  postgrestHost = serviceHost "postgrest";
+  gotrueHost = serviceHost "gotrue";
+  storageHost = serviceHost "storage";
   studioHost = serviceHost "studio";
-
-  restList = lib.concatStringsSep " " restUpstreams;
-  authList = lib.concatStringsSep " " authUpstreams;
-  storageList = lib.concatStringsSep " " storageUpstreams;
 in
 {
   networking.firewall.allowedTCPPorts = [
     80
     443
   ];
+
+  networking.hosts."127.0.0.1" = [ domain ];
 
   services.caddy = {
     enable = true;
@@ -42,26 +29,23 @@ in
       servers {
         protocols h1 h2 h2c
       }
+      skip_install_trust
     '';
 
     virtualHosts."http://${domain}, https://${domain}".extraConfig = ''
       handle /rest/v1/* {
         uri strip_prefix /rest/v1
-        reverse_proxy ${restList} {
-          lb_policy round_robin
-        }
+        reverse_proxy http://${postgrestHost}:3000
       }
 
       handle /auth/v1/* {
-        reverse_proxy ${authList} {
-          lb_policy round_robin
-        }
+        uri strip_prefix /auth/v1
+        reverse_proxy http://${gotrueHost}:9999
       }
 
       handle /storage/v1/* {
-        reverse_proxy ${storageList} {
-          lb_policy round_robin
-        }
+        uri strip_prefix /storage/v1
+        reverse_proxy http://${storageHost}:5000
       }
 
       handle {

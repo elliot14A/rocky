@@ -16,11 +16,10 @@
 
   outputs =
     {
-      self,
       nixpkgs,
       deploy-rs,
-      disko,
       agenix,
+      ...
     }:
     let
       supportedSystems = [

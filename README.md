@@ -1,38 +1,55 @@
 # rocky
 
+> [!WARNING]
+> **Work In Progress**: Rocky is under active development. CLI commands, system modules, and templates are evolving rapidly.
+
 Opinionated NixOS fleet deployment tool written in Rust.
 
-Rocky manages NixOS servers on cloud VPS providers (Hetzner Cloud and Oracle Cloud Infrastructure). You write your services as NixOS modules, map them to hosts in an environment file, and use the CLI to bootstrap blank machines and deploy changes.
+Rocky manages fleets of NixOS servers across bare-metal and cloud VPS providers without cluster daemons, etcd clusters, or runtime control planes. You write services as NixOS modules, map them to hosts in a declarative fleet file, and use the CLI to bootstrap blank machines, rekey secrets, and deploy changes.
 
 ## What it does
 
-- **Opinionated fleet layout**: Sets up environments (`environments/<env>/`), shared services (`services/<name>.nix`), and base system modules (firewall, SSH, Tailscale).
-- **Disk wiping and install**: Uses Disko and `nixos-anywhere` to format blank VPS instances, inject host SSH keys, and install NixOS over SSH.
-- **Service addressing**: Computes internal service addresses and Caddy reverse proxy upstreams from the fleet configuration so services can find each other over Tailscale.
-- **Secret scoping**: Derives Agenix recipient keys so each host only gets decryption keys for the secrets its assigned services need.
-- **Deployment and rollback**: Builds system closures and applies them to running hosts with deploy-rs, automatically rolling back if a deploy fails.
+- **Compile-time placement**: Resolves internal service discovery and networking at Nix build time. Co-located services resolve to `127.0.0.1`, and remote services resolve over private Tailscale WireGuard addresses.
+- **Kernel Layer 4 load balancing**: Service replicas are balanced directly in the Linux kernel on the destination host using `nftables` DNAT. Ingress proxies like Caddy connect directly to base ports with zero Layer 7 proxy overhead.
+- **Zero-trust machine inception**: Uses Disko and `nixos-anywhere` to wipe blank VPS instances, inject local Ed25519 host SSH keys, and install NixOS over SSH.
+- **Cryptographic secret scoping**: Derives Agenix recipient keys so each host only gets decryption keys for the secrets its assigned services need. Secrets remain encrypted at rest and in RAM on target hosts.
+- **Dual workload support**: Runs native NixOS systemd services and sandboxed Podman OCI containers interchangeably.
+- **Atomic deployment and rollback**: Builds host system closures and activates them with deploy-rs, automatically rolling back to the previous generation if activation fails.
 
 ## Commands
 
 ```bash
-# Scaffold
-rocky env new <name>            # environments/<name>/
-rocky host new <name> --env <env> # environments/<env>/hosts/<name>/
-rocky service new <name>         # services/<name>.nix
+# Environment management
+rocky env new <name>
 
-# Deploy
-rocky up <env>                  # installs uninstalled hosts, rekeys secrets, deploys the fleet
+# Host management
+rocky host new <name> --env <env>
+
+# Service scaffolding
+rocky service new <name>
+
+# Secret lifecycle
+rocky secret new <env> <name>
+rocky secret edit <env> <name>
+rocky secret show <env> <name>
+rocky secret rekey <env>
+
+# Fleet lifecycle
+rocky up <env>                  # bootstraps pending hosts, rekeys secrets, deploys fleet
 rocky status <env>              # checks host connectivity and running generations
+rocky ssh <env> <host>          # connects to a host over Tailscale
+rocky log <env> <host> [svc]    # tails remote host or service systemd logs
 ```
 
 ## How an environment is structured
 
-```
+```text
 environments/<env>/
   fleet.nix          # maps hosts to the services they run
-  env.nix            # per-service environment variables
-  hosts/<name>/      # disk layout (disko.nix) and host settings
-  secrets/           # agenix encrypted secrets and host public keys
+  env.nix            # per-service non-sensitive environment variables
+  keys.nix           # host SSH public keys registered during bootstrap
+  hosts/<name>/      # disk layout (disko.nix) and host-specific settings
+  secrets/           # agenix encrypted secret ciphertexts (.age)
 services/*.nix       # one NixOS module per service (shared across environments)
 ```
 
@@ -46,36 +63,29 @@ hosts."001" = {
 ```
 
 When you run `rocky up <env>`:
-1. It checks `secrets/host-keys.nix` against `fleet.nix` to find uninstalled hosts.
-2. For uninstalled hosts, it asks for the public IP, generates an SSH host key, wipes the disk, and installs NixOS.
-3. It runs `agenix --rekey` so secrets are encrypted for the new host keys.
+1. It inspects `fleet.nix` and `keys.nix` to identify uninstalled hosts.
+2. For uninstalled hosts, it requests the rescue IP, generates host SSH keys locally, wipes the disk, and installs NixOS via `nixos-anywhere`.
+3. It runs Agenix rekeying so secrets are encrypted for the new host keys.
 4. It deploys system closures across the fleet using `deploy-rs`.
 
 ## Host lifecycle
 
 1. **Declared**: You add a host entry in `fleet.nix` with its provider and services.
-2. **Bootstrapped**: `rocky up` wipes the blank VPS disk via Disko, generates a dedicated SSH host key locally, injects it via `nixos-anywhere --extra-files`, and installs NixOS.
-3. **Rekeyed**: The host public key is recorded in `secrets/host-keys.nix`. Agenix rekeys existing secrets to include the new host key.
+2. **Bootstrapped**: `rocky up` wipes the VPS disk via Disko, injects the host SSH key via `nixos-anywhere --extra-files`, and installs NixOS.
+3. **Rekeyed**: The host public key is recorded in `environments/<env>/keys.nix`. Agenix rekeys existing secrets to include the new host key.
 4. **Active**: The machine joins the private Tailscale mesh and runs its assigned systemd units or containers.
 5. **Updated**: Subsequent `rocky up` runs deploy changes over Tailscale via `deploy-rs`. If activation fails, `deploy-rs` automatically rolls back to the previous generation.
 
 ## Secrets and security
 
-- **Encryption at rest**: Secrets are encrypted using Agenix (Age) and committed to git as `.age` files. Plaintext secrets never touch git.
-- **Recipient scoping**: Each secret is encrypted only for the operator's key plus the host keys that run that service. If host `002` only runs frontend code, it does not get decryption keys for database secrets.
-- **Firewall**: Inbound network traffic on public interfaces is blocked by default using `nftables`. Hosts communicate over private Tailscale addresses (`tailscale0`). Only public web ports (`80`, `443`) are exposed on hosts running Caddy.
-
-## How services run
-
-Services in `services/<name>.nix` are standard NixOS modules. They run in one of two ways:
-
-- **Native systemd services**: Binaries or packages managed directly by systemd (for example PostgreSQL, Caddy, or pre-built binaries).
-- **OCI containers**: Docker images run via Podman using NixOS's built-in `virtualisation.oci-containers`. Containers run as systemd units with automatic restart on failure and access to Agenix secret files.
+- **Encryption at rest**: Secrets are encrypted using Agenix (Age) and decrypted into RAM at `/run/agenix/` upon host activation.
+- **Recipient scoping**: Each secret is encrypted only for authorized operator keys plus the host keys that run that service. A frontend host never receives database credentials.
+- **Firewall**: Inbound traffic on public interfaces is blocked by default. Hosts communicate over private Tailscale interfaces (`tailscale0`). Only public web ports (`80`, `443`) are exposed on hosts running Caddy.
 
 ## Development
 
 ```bash
-cargo build
+cargo check
 cargo test
-nix flake check
+nix flake check --no-build
 ```

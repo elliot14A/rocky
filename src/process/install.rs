@@ -76,7 +76,7 @@ pub async fn install_host(
     identity: Option<&Path>,
     log_path: &Path,
 ) -> Result<()> {
-    crate::utils::validate::validate_name(Kind::Host, &host.name)?;
+    crate::validate::validate_name(Kind::Host, &host.name)?;
 
     ensure!(
         host.extra_files_dir.exists(),

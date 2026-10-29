@@ -8,7 +8,7 @@ use std::path::Path;
 
 use crate::error::{Kind, NixParseSnafu, Result};
 use crate::process;
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
 pub use create::create_secret;
 pub use edit::edit_secret;

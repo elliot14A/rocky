@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use rocky::error::Kind;
 use rocky::ui;
-use rocky::utils::validate_name;
+use rocky::validate_name;
 
 use crate::error::Result;
 use crate::start::{box_dir, is_pid_alive, read_active_pid};

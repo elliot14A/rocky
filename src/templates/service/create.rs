@@ -5,7 +5,7 @@ use tap::prelude::*;
 
 use super::kind::ServiceKind;
 use crate::error::{AlreadyExistsSnafu, Kind, NotFoundSnafu, Result};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,8 +118,8 @@ in
 "#
         ),
         (ServiceKind::Podman, false) => {
-            let port_config = port
-                .map(|p| format!("\n    ports = [\n      \"{p}:{p}\"\n    ];"))
+            let port_env = port
+                .map(|p| format!(" // {{\n    PORT = \"{p}\";\n  }}"))
                 .unwrap_or_default();
             format!(
                 r#"# {name}.nix - OCI container service module loaded for hosts whose
@@ -146,10 +146,13 @@ let
   secretHashes = [ ];
 in
 {{
-  virtualisation.oci-containers.containers.{name} = {{{port_config}
+  virtualisation.oci-containers.containers.{name} = {{
     image = "alpine:latest";
     autoStart = true;
-    environment = serviceEnv;
+    environment = serviceEnv{port_env};
+    extraOptions = [
+      "--network=host"
+    ];
   }};
 
   systemd.services = containerRestartTriggers {{
@@ -199,7 +202,9 @@ in
       {{
         image = "alpine:latest";
         autoStart = true;
-        environment = serviceEnv;
+        environment = serviceEnv // {{
+          PORT = toString port;
+        }};
       }};
   }};
 

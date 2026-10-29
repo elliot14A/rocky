@@ -1,6 +1,5 @@
 {
   settings = {
-    tailscaleLoginServer = "http://10.0.2.2:8080";
     domain = "prod.rocky.internal";
     acmeEmail = "admin@prod.rocky.internal";
   };
@@ -32,10 +31,13 @@
     };
 
     "edge" = {
-      services = [
-        "caddy"
-        "studio"
-      ];
+      services = {
+        "caddy" = { };
+        "studio" = { };
+        "meta" = {
+          basePort = 8080;
+        };
+      };
     };
   };
 }

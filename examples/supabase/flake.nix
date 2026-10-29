@@ -15,13 +15,12 @@
   };
 
   outputs =
-    inputs@{
-      self,
+    {
       nixpkgs,
       deploy-rs,
-      disko,
       agenix,
-    }:
+      ...
+    }@inputs:
     let
       supportedSystems = [
         "x86_64-linux"

@@ -42,6 +42,11 @@ fn test_nix_service_replication() {
 }
 
 #[test]
+fn test_nix_nftables_load_balancer() {
+    eval_nix_test("tests/nix/nftables.nix");
+}
+
+#[test]
 fn test_nix_mesh_syntax_evaluates() {
     let full_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/nix/mesh.nix");
     let output = Command::new("nix-instantiate")

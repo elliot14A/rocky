@@ -28,27 +28,6 @@ async fn test_mesh_resolve_login_server_from_fleet_nix() {
 }
 
 #[tokio::test]
-async fn test_mesh_resolve_login_server_translates_qemu_loopback() {
-    let ws = TestWorkspace::new();
-    let fleet_path = setup_fleet(&ws);
-
-    let env_dir = fleet_path.join("environments").join("prod");
-    fs::create_dir_all(&env_dir).unwrap();
-
-    let fleet_nix = r#"{
-  settings = {
-    tailscaleLoginServer = "http://10.0.2.2:8080";
-  };
-  hosts = { };
-}
-"#;
-    fs::write(env_dir.join("fleet.nix"), fleet_nix).unwrap();
-
-    let server = resolve_login_server(&fleet_path, "prod").await.unwrap();
-    assert_eq!(server, "http://127.0.0.1:8080");
-}
-
-#[tokio::test]
 async fn test_mesh_resolve_login_server_defaults_to_tailscale_saas() {
     let ws = TestWorkspace::new();
     let fleet_path = setup_fleet(&ws);
