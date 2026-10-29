@@ -88,6 +88,9 @@ pub enum RockyError {
 
     #[snafu(display("Mesh error: {reason}"))]
     Mesh { reason: String },
+
+    #[snafu(display("Terminal error: {source}"))]
+    Terminal { source: std::io::Error },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

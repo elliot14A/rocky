@@ -1,5 +1,4 @@
 pub mod spinner;
-pub mod tui;
 
 pub use spinner::{with_spinner, Spinner};
 

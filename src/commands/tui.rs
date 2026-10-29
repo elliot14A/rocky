@@ -20,5 +20,5 @@ pub async fn run(args: TuiArgs, target_dir: Option<&Path>) -> Result<()> {
 }
 
 async fn execute(args: TuiArgs, fleet_root: &Path) -> Result<()> {
-    crate::ui::tui::run(fleet_root, args.identity.as_deref()).await
+    crate::tui::run(fleet_root, args.identity.as_deref()).await
 }
