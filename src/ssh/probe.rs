@@ -91,10 +91,12 @@ pub async fn probe_tailscale_connectivity(
             Ok(Ok(output)) if output.status.success() => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if is_tailscale_online(&stdout) {
-                    return Ok(())
-                        .tap_ok(|_| tracing::debug!(env, host, target, port, "tailscale mesh probe succeeded"));
+                    return Ok(()).tap_ok(|_| {
+                        tracing::debug!(env, host, target, port, "tailscale mesh probe succeeded")
+                    });
                 }
-                last_stderr = "Tailscale daemon is running but backend state is not Running".to_string();
+                last_stderr =
+                    "Tailscale daemon is running but backend state is not Running".to_string();
             }
             Ok(Ok(output)) => {
                 last_stderr = String::from_utf8_lossy(&output.stderr)

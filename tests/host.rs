@@ -7,7 +7,13 @@ use rocky::commands::host::{self, new::HostArgs, HostArgs as CliHostArgs, HostCo
 use rocky::error::{Kind, RockyError};
 
 async fn run_host(args: HostArgs, target: Option<&std::path::Path>) -> rocky::error::Result<()> {
-    host::run(CliHostArgs { command: HostCommand::New(args) }, target).await
+    host::run(
+        CliHostArgs {
+            command: HostCommand::New(args),
+        },
+        target,
+    )
+    .await
 }
 
 #[tokio::test]

@@ -89,6 +89,9 @@ pub enum RockyError {
     #[snafu(display("Mesh error: {reason}"))]
     Mesh { reason: String },
 
+    #[snafu(display("Terminal error: {source}"))]
+    Terminal { source: std::io::Error },
+
     #[snafu(display(
         "Tailscale mesh probe timed out for host '{host}' at {target}:{port} after {timeout}s: {stderr}"
     ))]

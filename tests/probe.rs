@@ -25,7 +25,9 @@ async fn test_probe_fails_on_unreachable_target() {
 
 #[tokio::test]
 async fn test_probe_rejects_invalid_host_name() {
-    let res = probe_tailscale_connectivity("prod", "../../etc/passwd", "", "127.0.0.1", 22, None, 1).await;
+    let res =
+        probe_tailscale_connectivity("prod", "../../etc/passwd", "", "127.0.0.1", 22, None, 1)
+            .await;
     assert!(res.is_err());
     match res.unwrap_err() {
         RockyError::InvalidName { kind, name } => {
@@ -38,7 +40,9 @@ async fn test_probe_rejects_invalid_host_name() {
 
 #[tokio::test]
 async fn test_probe_rejects_invalid_environment_name() {
-    let res = probe_tailscale_connectivity("../../etc/passwd", "edge", "", "127.0.0.1", 22, None, 1).await;
+    let res =
+        probe_tailscale_connectivity("../../etc/passwd", "edge", "", "127.0.0.1", 22, None, 1)
+            .await;
     assert!(res.is_err());
     match res.unwrap_err() {
         RockyError::InvalidName { kind, name } => {

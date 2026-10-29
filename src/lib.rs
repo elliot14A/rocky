@@ -6,6 +6,7 @@ pub mod nix;
 pub mod process;
 pub mod ssh;
 pub mod templates;
+pub mod tui;
 pub mod ui;
 pub mod validate;
 

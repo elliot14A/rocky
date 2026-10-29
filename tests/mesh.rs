@@ -27,7 +27,6 @@ async fn test_mesh_resolve_login_server_from_fleet_nix() {
     assert_eq!(server, "https://headscale.internal.company.com");
 }
 
-
 #[tokio::test]
 async fn test_mesh_resolve_login_server_defaults_to_tailscale_saas() {
     let ws = TestWorkspace::new();
@@ -63,9 +62,12 @@ async fn test_mesh_resolve_authkey_fails_when_secret_missing() {
     let env_dir = fleet_path.join("environments").join("prod");
     fs::create_dir_all(&env_dir).unwrap();
 
-    let err = resolve_authkey(&fleet_path, "prod", None, None).await.unwrap_err();
+    let err = resolve_authkey(&fleet_path, "prod", None, None)
+        .await
+        .unwrap_err();
     assert!(
-        err.to_string().contains("Tailscale authkey secret not found"),
+        err.to_string()
+            .contains("Tailscale authkey secret not found"),
         "expected missing secret error, got: {err}"
     );
 }
@@ -79,15 +81,18 @@ async fn test_mesh_resolve_authkey_from_encrypted_fleet_secret() {
     fs::create_dir_all(&secrets_dir).unwrap();
 
     let gen = rocky::ssh::generate_host_key("testoperator").await.unwrap();
-    let priv_key = gen.extra_files_dir.path().join("etc/ssh/ssh_host_ed25519_key");
+    let priv_key = gen
+        .extra_files_dir
+        .path()
+        .join("etc/ssh/ssh_host_ed25519_key");
 
     let authkey_value = "hskey-auth-test-roundtrip-secret-token";
     let ciphertext = rocky::crypto::age::encrypt(
         authkey_value.as_bytes(),
         std::slice::from_ref(&gen.public_key),
     )
-        .await
-        .unwrap();
+    .await
+    .unwrap();
     fs::write(secrets_dir.join("tailscale-authkey.age"), ciphertext).unwrap();
 
     let resolved = resolve_authkey(&fleet_path, "prod", None, Some(&priv_key))
@@ -95,10 +100,6 @@ async fn test_mesh_resolve_authkey_from_encrypted_fleet_secret() {
         .unwrap();
     assert_eq!(resolved, authkey_value);
 }
-
-
-
-
 
 #[tokio::test]
 async fn test_mesh_join_rejects_missing_environment() {

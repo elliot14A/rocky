@@ -41,11 +41,7 @@ where
         let display_cmd = if args_vec.is_empty() {
             cmd.to_string()
         } else {
-            format!(
-                "{} {}",
-                cmd,
-                sanitize_display_args(&args_vec).join(" ")
-            )
+            format!("{} {}", cmd, sanitize_display_args(&args_vec).join(" "))
         };
         let sanitized_display_cmd = sanitize_sensitive_string(&display_cmd);
 

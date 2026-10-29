@@ -237,7 +237,8 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&insecure_key, std::fs::Permissions::from_mode(0o644)).unwrap();
+            std::fs::set_permissions(&insecure_key, std::fs::Permissions::from_mode(0o644))
+                .unwrap();
             let res = canonicalize_identity(Some(&insecure_key));
             assert!(res.is_err());
             match res.unwrap_err() {

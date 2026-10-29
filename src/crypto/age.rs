@@ -121,7 +121,26 @@ pub async fn decrypt(ciphertext: &[u8], identity_path: Option<&Path>) -> Result<
         return MissingIdentitySnafu.fail();
     };
 
-    let args = vec!["-d".to_string(), "-i".to_string(), path.display().to_string()];
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = path.metadata() {
+            let mode = meta.permissions().mode();
+            if mode & 0o077 != 0 {
+                crate::ui::warn(format!(
+                    "Identity file '{}' permissions are too open (0{:o}); expected 0600",
+                    path.display(),
+                    mode & 0o777
+                ));
+            }
+        }
+    }
+
+    let args = vec![
+        "-d".to_string(),
+        "-i".to_string(),
+        path.display().to_string(),
+    ];
 
     let mut child = Command::new("age")
         .args(&args)

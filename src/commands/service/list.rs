@@ -74,7 +74,10 @@ async fn execute(_args: ListArgs, fleet_root: &Path) -> Result<()> {
     println!("{:-<16} {:-<12} {:-<24}", "", "", "");
 
     for service in services {
-        println!("{:<16} {:<12} {:<24}", service.name, service.kind, service.target);
+        println!(
+            "{:<16} {:<12} {:<24}",
+            service.name, service.kind, service.target
+        );
     }
 
     Ok(())

@@ -169,7 +169,9 @@ pub fn parse_headscale_nodes_json(json_str: &str) -> Vec<ControlPlaneNode> {
         .collect()
 }
 
-pub async fn query_headscale_nodes(config_path: &Path) -> Result<HashMap<String, ControlPlaneNode>> {
+pub async fn query_headscale_nodes(
+    config_path: &Path,
+) -> Result<HashMap<String, ControlPlaneNode>> {
     let bin = resolve_headscale_bin()?;
     let args = [
         "--config",
@@ -397,8 +399,7 @@ pub async fn get_fleet_mesh_status(fleet_root: &Path, env: &str) -> Result<Fleet
     let server = resolve_login_server(fleet_root, env).await?;
     let domain = resolve_domain(fleet_root, env).await?;
 
-    let (workstation_connected, workstation_ip) =
-        check_workstation_tailscale(&domain, env).await?;
+    let (workstation_connected, workstation_ip) = check_workstation_tailscale(&domain, env).await?;
 
     let mut node_map = HashMap::new();
     if server.contains("127.0.0.1") || server.contains("localhost") {
@@ -469,23 +470,16 @@ pub async fn mesh_join(server: &str, authkey: &str, force_reauth: bool) -> Resul
             })?;
     }
 
-    temp_key
-        .write_all(authkey.as_bytes())
-        .context(IoSnafu {
-            path: temp_key.path(),
-        })?;
+    temp_key.write_all(authkey.as_bytes()).context(IoSnafu {
+        path: temp_key.path(),
+    })?;
     temp_key.flush().context(IoSnafu {
         path: temp_key.path(),
     })?;
 
     let login_arg = format!("--login-server={server}");
     let authkey_arg = format!("--auth-key=file:{}", temp_key.path().display());
-    let mut up_args = vec![
-        "up",
-        &login_arg,
-        &authkey_arg,
-        "--accept-dns=true",
-    ];
+    let mut up_args = vec!["up", &login_arg, &authkey_arg, "--accept-dns=true"];
 
     if force_reauth {
         up_args.push("--force-reauth");

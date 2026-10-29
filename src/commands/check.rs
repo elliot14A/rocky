@@ -21,9 +21,32 @@ pub async fn run(args: CheckArgs, target: Option<&Path>) -> Result<()> {
     .await
 }
 
-struct MockSecretGuard<'a> {
+pub struct MockSecretGuard<'a> {
     fleet_root: &'a Path,
-    paths: Vec<PathBuf>,
+    pub paths: Vec<PathBuf>,
+}
+
+impl<'a> MockSecretGuard<'a> {
+    pub async fn new(fleet_root: &'a Path) -> Result<Option<Self>> {
+        let mocked = crypto::generate_mock_secrets(fleet_root).await?;
+        if mocked.is_empty() {
+            return Ok(None);
+        }
+        let has_git = fleet_root.join(".git").exists();
+        for path in &mocked {
+            if has_git {
+                let _ = std::process::Command::new("git")
+                    .current_dir(fleet_root)
+                    .args(["add", "-N", "--quiet"])
+                    .arg(path)
+                    .output();
+            }
+        }
+        Ok(Some(Self {
+            fleet_root,
+            paths: mocked,
+        }))
+    }
 }
 
 impl<'a> Drop for MockSecretGuard<'a> {
@@ -47,26 +70,15 @@ impl<'a> Drop for MockSecretGuard<'a> {
 
 async fn execute(args: CheckArgs, fleet_root: &Path) -> Result<()> {
     let _guard = if args.mock_secrets {
-        let mocked = crypto::generate_mock_secrets(fleet_root).await?;
-        if mocked.is_empty() {
-            ui::info("All declared secrets exist on disk; no mock secrets needed.");
-        } else {
-            let has_git = fleet_root.join(".git").exists();
-            for path in &mocked {
-                if has_git {
-                    let _ = std::process::Command::new("git")
-                        .current_dir(fleet_root)
-                        .args(["add", "-N", "--quiet"])
-                        .arg(path)
-                        .output();
-                }
+        let guard = MockSecretGuard::new(fleet_root).await?;
+        if let Some(ref g) = guard {
+            for path in &g.paths {
                 ui::success(format!("Generated mock secret at {}", path.display()));
             }
+        } else {
+            ui::info("All declared secrets exist on disk; no mock secrets needed.");
         }
-        Some(MockSecretGuard {
-            fleet_root,
-            paths: mocked,
-        })
+        guard
     } else {
         None
     };

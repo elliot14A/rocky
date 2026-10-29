@@ -9,7 +9,10 @@ use crate::ui;
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct JoinArgs {
-    #[arg(value_name = "ENV", help = "Environment name to join (e.g. prod, staging)")]
+    #[arg(
+        value_name = "ENV",
+        help = "Environment name to join (e.g. prod, staging)"
+    )]
     pub env: Option<String>,
 
     #[arg(
@@ -24,7 +27,11 @@ pub struct JoinArgs {
     #[arg(short, long, help = "Tailscale authkey for authentication")]
     pub authkey: Option<String>,
 
-    #[arg(short = 'i', long, help = "Path to SSH private key identity file for decrypting secrets")]
+    #[arg(
+        short = 'i',
+        long,
+        help = "Path to SSH private key identity file for decrypting secrets"
+    )]
     pub identity: Option<PathBuf>,
 
     #[arg(long, help = "Override login server URL")]

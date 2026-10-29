@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use rnix::ast::HasEntry;
@@ -111,6 +112,77 @@ pub fn list_declared_secrets(secrets_nix_content: &str) -> Result<Vec<String>> {
     Ok(names)
 }
 
+pub fn extract_secret_recipient_services(
+    secrets_nix_content: &str,
+    path: &Path,
+) -> Result<HashMap<String, Vec<String>>> {
+    let root_set = parse_root_attr_set(secrets_nix_content, path)?;
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+
+    for entry in root_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+        let mut attrs = attrpath.attrs();
+        let Some(first_attr) = attrs.next() else {
+            continue;
+        };
+        let Some(entry_name) = attr_to_name(&first_attr) else {
+            continue;
+        };
+
+        let services = map.entry(entry_name).or_default();
+        if let Some(val) = entry.value() {
+            extract_services_from_secret_expr(val, services);
+        }
+    }
+
+    Ok(map)
+}
+
+fn extract_services_from_secret_expr(expr: rnix::ast::Expr, services: &mut Vec<String>) {
+    match expr {
+        rnix::ast::Expr::Apply(apply) => {
+            if let Some(arg) = apply.argument() {
+                extract_services_from_secret_expr(arg, services);
+            }
+        }
+        rnix::ast::Expr::Paren(paren) => {
+            if let Some(inner) = paren.expr() {
+                extract_services_from_secret_expr(inner, services);
+            }
+        }
+        rnix::ast::Expr::List(list) => {
+            for item in list.items() {
+                match item {
+                    rnix::ast::Expr::Str(s) => {
+                        let text = s.to_string();
+                        let clean = text.trim_matches('\'').trim_matches('"').trim();
+                        if !clean.is_empty() {
+                            services.push(clean.to_string());
+                        }
+                    }
+                    rnix::ast::Expr::Ident(ident) => {
+                        let text = ident.to_string().trim().to_string();
+                        if !text.is_empty() {
+                            services.push(text);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        rnix::ast::Expr::AttrSet(attr_set) => {
+            for inner in attr_set.attrpath_values() {
+                if let Some(val) = inner.value() {
+                    extract_services_from_secret_expr(val, services);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,6 +247,28 @@ in
         assert!(res.contains("# Existing secret comment"));
         assert!(res.contains(r#""existing.age".publicKeys = allHosts;"#));
         assert!(res.contains(r#""new-secret.age".publicKeys = recipientsFor [ "api" ];"#));
+    }
+
+    #[test]
+    fn test_extract_secret_recipient_services() {
+        let content = r#"
+{
+  "jwt.age".publicKeys = recipientsFor [ "postgrest" "storage" "gotrue" ];
+  "pgdog.age".publicKeys = recipientsFor [ "pgdog" ];
+  "all.age".publicKeys = allHosts;
+}
+"#;
+        let map = extract_secret_recipient_services(content, Path::new("secrets.nix")).unwrap();
+        assert_eq!(
+            map.get("jwt.age"),
+            Some(&vec![
+                "postgrest".to_string(),
+                "storage".to_string(),
+                "gotrue".to_string()
+            ])
+        );
+        assert_eq!(map.get("pgdog.age"), Some(&vec!["pgdog".to_string()]));
+        assert_eq!(map.get("all.age"), Some(&vec![]));
     }
 
     #[test]

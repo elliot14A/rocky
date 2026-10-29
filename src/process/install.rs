@@ -153,11 +153,7 @@ pub async fn install_host(
         }
     });
 
-    let (exit_status, _, _) = tokio::join!(
-        child.wait(),
-        stdout_task,
-        stderr_task,
-    );
+    let (exit_status, _, _) = tokio::join!(child.wait(), stdout_task, stderr_task,);
 
     let exit_status = exit_status.context(ProcessSpawnSnafu {
         command: "nixos-anywhere",
