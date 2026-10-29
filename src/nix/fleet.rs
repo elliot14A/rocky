@@ -342,8 +342,8 @@ pub fn insert_service_entry(
         path: path.to_path_buf(),
     })?;
 
-    let current_services = extract_services_from_host_set(&host_set);
-    if current_services.iter().any(|s| s == service_name) {
+    let current_services = extract_service_configs_from_host_set(&host_set);
+    if current_services.iter().any(|s| s.name == service_name) {
         return AlreadyExistsSnafu {
             kind: Kind::Service,
             name: service_name.to_string(),
@@ -486,84 +486,28 @@ fn unwrap_parens(mut expr: ast::Expr) -> ast::Expr {
     expr
 }
 
-fn extract_services_from_attr_set(attr_set: &ast::AttrSet, services: &mut Vec<String>) {
-    for entry in attr_set.attrpath_values() {
-        if let Some(attrpath) = entry.attrpath() {
-            if let Some(first) = attrpath.attrs().next() {
-                if let Some(name) = attr_to_name(&first) {
-                    services.push(name);
-                }
-            }
-        }
-    }
-}
-
-fn extract_services_from_expr(expr: ast::Expr) -> Vec<String> {
-    let current = unwrap_parens(expr);
-    let mut services = Vec::new();
-    match current {
-        ast::Expr::List(list) => {
-            for item in list.items() {
-                match unwrap_parens(item) {
-                    ast::Expr::Str(s) => {
-                        let raw = s.to_string();
-                        let clean = raw.trim_matches('\'').trim_matches('"').trim();
-                        if !clean.is_empty() {
-                            services.push(clean.to_string());
-                        }
-                    }
-                    ast::Expr::Ident(ident) => {
-                        let name = ident.to_string().trim().to_string();
-                        if !name.is_empty() {
-                            services.push(name);
-                        }
-                    }
-                    ast::Expr::AttrSet(attr_set) => {
-                        extract_services_from_attr_set(&attr_set, &mut services);
-                    }
-                    _ => {}
-                }
-            }
-        }
-        ast::Expr::AttrSet(attr_set) => {
-            extract_services_from_attr_set(&attr_set, &mut services);
-        }
-        _ => {}
-    }
-    services
-}
-
-fn extract_services_from_host_set(host_set: &ast::AttrSet) -> Vec<String> {
-    let mut services = Vec::new();
-    for entry in host_set.attrpath_values() {
-        let Some(attrpath) = entry.attrpath() else {
-            continue;
-        };
-        let mut attrs = attrpath.attrs();
-        let Some(first_attr) = attrs.next() else {
-            continue;
-        };
-        if attr_to_name(&first_attr).as_deref() != Some("services") {
-            continue;
-        }
-
-        if let Some(second_attr) = attrs.next() {
-            if let Some(name) = attr_to_name(&second_attr) {
-                services.push(name);
-            }
-            continue;
-        }
-
-        if let Some(val_expr) = entry.value() {
-            services.extend(extract_services_from_expr(val_expr));
-        }
-    }
-    services
-}
-
 pub fn extract_host_services(fleet_src: &str, path: &Path) -> Result<HashMap<String, Vec<String>>> {
+    let configs = extract_host_services_config(fleet_src, path)?;
+    let map = configs
+        .into_iter()
+        .map(|(host, svcs)| (host, svcs.into_iter().map(|s| s.name).collect()))
+        .collect();
+    Ok(map)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostServiceConfig {
+    pub name: String,
+    pub replicas: u32,
+    pub base_port: Option<u16>,
+}
+
+pub fn extract_host_services_config(
+    fleet_src: &str,
+    path: &Path,
+) -> Result<HashMap<String, Vec<HostServiceConfig>>> {
     let root_set = parse_root_attr_set(fleet_src, path)?;
-    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    let mut map: HashMap<String, Vec<HostServiceConfig>> = HashMap::new();
 
     for entry in root_set.attrpath_values() {
         let Some(attrpath) = entry.attrpath() else {
@@ -590,15 +534,24 @@ pub fn extract_host_services(fleet_src: &str, path: &Path) -> Result<HashMap<Str
                 if attr_to_name(&third_attr).as_deref() == Some("services") {
                     if let Some(fourth_attr) = attrs.next() {
                         if let Some(svc_name) = attr_to_name(&fourth_attr) {
-                            host_services.push(svc_name);
+                            let (replicas, base_port) = entry
+                                .value()
+                                .and_then(unwrap_attr_set)
+                                .map(|s| parse_svc_attr_set(&s))
+                                .unwrap_or((1, None));
+                            host_services.push(HostServiceConfig {
+                                name: svc_name,
+                                replicas,
+                                base_port,
+                            });
                         }
                     } else if let Some(val_expr) = entry.value() {
-                        host_services.extend(extract_services_from_expr(val_expr));
+                        host_services.extend(extract_service_configs_from_expr(val_expr));
                     }
                 }
             } else if let Some(val_expr) = entry.value() {
                 if let Some(host_set) = unwrap_attr_set(val_expr) {
-                    host_services.extend(extract_services_from_host_set(&host_set));
+                    host_services.extend(extract_service_configs_from_host_set(&host_set));
                 }
             }
             continue;
@@ -627,27 +580,171 @@ pub fn extract_host_services(fleet_src: &str, path: &Path) -> Result<HashMap<Str
                     if attr_to_name(&second_inner).as_deref() == Some("services") {
                         if let Some(third_inner) = inner_attrs.next() {
                             if let Some(svc_name) = attr_to_name(&third_inner) {
-                                host_services.push(svc_name);
+                                let (replicas, base_port) = inner_entry
+                                    .value()
+                                    .and_then(unwrap_attr_set)
+                                    .map(|s| parse_svc_attr_set(&s))
+                                    .unwrap_or((1, None));
+                                host_services.push(HostServiceConfig {
+                                    name: svc_name,
+                                    replicas,
+                                    base_port,
+                                });
                             }
                         } else if let Some(inner_val) = inner_entry.value() {
-                            host_services.extend(extract_services_from_expr(inner_val));
+                            host_services.extend(extract_service_configs_from_expr(inner_val));
                         }
                     }
                 } else if let Some(inner_val) = inner_entry.value() {
                     if let Some(host_set) = unwrap_attr_set(inner_val) {
-                        host_services.extend(extract_services_from_host_set(&host_set));
+                        host_services.extend(extract_service_configs_from_host_set(&host_set));
                     }
                 }
             }
         }
     }
 
-    for services in map.values_mut() {
+    for configs in map.values_mut() {
         let mut seen = std::collections::HashSet::new();
-        services.retain(|s| seen.insert(s.clone()));
+        configs.retain(|c| seen.insert(c.name.clone()));
     }
 
     Ok(map)
+}
+
+fn parse_svc_attr_set(attr_set: &ast::AttrSet) -> (u32, Option<u16>) {
+    let mut replicas = 1;
+    let mut base_port = None;
+
+    for entry in attr_set.attrpath_values() {
+        if let Some(attrpath) = entry.attrpath() {
+            if let Some(attr) = attrpath.attrs().next() {
+                if let Some(name) = attr_to_name(&attr) {
+                    if name == "replicas" {
+                        if let Some(v) = entry.value() {
+                            if let Ok(num) = v.to_string().trim().parse::<u32>() {
+                                replicas = num;
+                            }
+                        }
+                    } else if name == "basePort" {
+                        if let Some(v) = entry.value() {
+                            if let Ok(num) = v.to_string().trim().parse::<u16>() {
+                                base_port = Some(num);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (replicas, base_port)
+}
+
+fn extract_service_configs_from_expr(expr: ast::Expr) -> Vec<HostServiceConfig> {
+    let current = unwrap_parens(expr);
+    let mut services = Vec::new();
+
+    match current {
+        ast::Expr::List(list) => {
+            for item in list.items() {
+                match unwrap_parens(item) {
+                    ast::Expr::Str(s) => {
+                        let raw = s.to_string();
+                        let clean = raw.trim_matches('\'').trim_matches('"').trim();
+                        if !clean.is_empty() {
+                            services.push(HostServiceConfig {
+                                name: clean.to_string(),
+                                replicas: 1,
+                                base_port: None,
+                            });
+                        }
+                    }
+                    ast::Expr::Ident(ident) => {
+                        let name = ident.to_string().trim().to_string();
+                        if !name.is_empty() {
+                            services.push(HostServiceConfig {
+                                name,
+                                replicas: 1,
+                                base_port: None,
+                            });
+                        }
+                    }
+                    ast::Expr::AttrSet(attr_set) => {
+                        extract_service_configs_from_attr_set(&attr_set, &mut services);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        ast::Expr::AttrSet(attr_set) => {
+            extract_service_configs_from_attr_set(&attr_set, &mut services);
+        }
+        _ => {}
+    }
+
+    services
+}
+
+fn extract_service_configs_from_attr_set(
+    attr_set: &ast::AttrSet,
+    services: &mut Vec<HostServiceConfig>,
+) {
+    for entry in attr_set.attrpath_values() {
+        if let Some(attrpath) = entry.attrpath() {
+            if let Some(first) = attrpath.attrs().next() {
+                if let Some(name) = attr_to_name(&first) {
+                    let (replicas, base_port) = entry
+                        .value()
+                        .and_then(unwrap_attr_set)
+                        .map(|s| parse_svc_attr_set(&s))
+                        .unwrap_or((1, None));
+                    services.push(HostServiceConfig {
+                        name,
+                        replicas,
+                        base_port,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn extract_service_configs_from_host_set(host_set: &ast::AttrSet) -> Vec<HostServiceConfig> {
+    let mut services = Vec::new();
+    for entry in host_set.attrpath_values() {
+        let Some(attrpath) = entry.attrpath() else {
+            continue;
+        };
+        let mut attrs = attrpath.attrs();
+        let Some(first_attr) = attrs.next() else {
+            continue;
+        };
+        if attr_to_name(&first_attr).as_deref() != Some("services") {
+            continue;
+        }
+
+        if let Some(second_attr) = attrs.next() {
+            if let Some(name) = attr_to_name(&second_attr) {
+                let (replicas, base_port) = entry
+                    .value()
+                    .and_then(unwrap_attr_set)
+                    .map(|s| parse_svc_attr_set(&s))
+                    .unwrap_or((1, None));
+                services.push(HostServiceConfig {
+                    name,
+                    replicas,
+                    base_port,
+                });
+            }
+            continue;
+        }
+
+        if let Some(val_expr) = entry.value() {
+            services.extend(extract_service_configs_from_expr(val_expr));
+        }
+    }
+    services
 }
 
 #[cfg(test)]
