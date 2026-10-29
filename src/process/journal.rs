@@ -123,7 +123,7 @@ fn scan_attr_set_for_service(
 
 pub fn validate_service_exists(fleet_root: &Path, service_name: &str) -> Result<PathBuf> {
     let clean = service_name.trim().trim_end_matches(".service");
-    crate::utils::validate::validate_name(Kind::Service, clean)?;
+    crate::validate::validate_name(Kind::Service, clean)?;
     let service_nix = fleet_root.join("services").join(format!("{clean}.nix"));
 
     ensure!(
@@ -144,7 +144,7 @@ pub fn resolve_service_target(
     target_or_service: Option<&str>,
     explicit_host: Option<&str>,
 ) -> Result<ResolvedLogTarget> {
-    crate::utils::validate::validate_name(Kind::Environment, env)?;
+    crate::validate::validate_name(Kind::Environment, env)?;
 
     let env_dir = fleet_root.join("environments").join(env);
     let fleet_nix = env_dir.join("fleet.nix");
@@ -171,7 +171,7 @@ pub fn resolve_service_target(
     );
 
     if let Some(host) = explicit_host {
-        crate::utils::validate::validate_name(Kind::Host, host)?;
+        crate::validate::validate_name(Kind::Host, host)?;
 
         ensure!(
             host_map.contains_key(host),
@@ -266,7 +266,7 @@ pub fn resolve_service_target(
         Some(h) => h,
         None => {
             if host_map.contains_key(clean) {
-                crate::utils::validate::validate_name(Kind::Host, clean)?;
+                crate::validate::validate_name(Kind::Host, clean)?;
                 return Ok(ResolvedLogTarget {
                     host: clean.to_string(),
                     service: None,
@@ -328,7 +328,7 @@ pub async fn execute_logs(
         validate_timestamp("until", until)?;
     }
 
-    crate::utils::validate::validate_name(Kind::Environment, env_raw)?;
+    crate::validate::validate_name(Kind::Environment, env_raw)?;
     let env_dir = fleet_root.join("environments").join(env_raw);
     ensure!(
         env_dir.is_dir(),

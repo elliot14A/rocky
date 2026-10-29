@@ -1,8 +1,8 @@
 {
   config,
-  pkgs,
   serviceHost,
   replicateContainers,
+  replicateServiceLoadBalancer,
   containerRestartTriggers,
   envVars,
   environment,
@@ -15,18 +15,30 @@ let
     "jwt"
     "postgres-creds"
   ];
-  envFiles = map (n: config.age.secrets.${n}.path) secretNames;
-  secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) secretNames;
+  existingSecretNames = builtins.filter (n: builtins.pathExists (secretsDir + "/${n}.age")) secretNames;
+  envFiles = map (n: config.age.secrets.${n}.path) existingSecretNames;
+  secretHashes = map (n: builtins.hashFile "sha256" (secretsDir + "/${n}.age")) existingSecretNames;
 
   serviceEnv = envVars.storage or { };
 in
 {
-  age.secrets."jwt" = {
-    file = secretsDir + "/jwt.age";
+  networking.nftables = replicateServiceLoadBalancer {
+    service = "storage";
+    basePort = 5000;
   };
-  age.secrets."postgres-creds" = {
-    file = secretsDir + "/postgres-creds.age";
-  };
+
+  age.secrets = builtins.listToAttrs (
+    map (n: {
+      name = n;
+      value = {
+        file = secretsDir + "/${n}.age";
+      };
+    }) existingSecretNames
+  );
+
+  systemd.tmpfiles.rules = [
+    "d /var/lib/supabase-storage 0750 root root -"
+  ];
 
   virtualisation.oci-containers.containers = replicateContainers {
     service = "storage";
@@ -35,15 +47,14 @@ in
     inherit envFiles;
     mkContainer =
       {
-        index,
         port,
-        name,
+        ...
       }:
       {
         image = "docker.io/supabase/storage-api:v1.11.0";
         environment = serviceEnv // {
           POSTGREST_URL = "http://${serviceHost "postgrest"}:3000";
-          PORT = "5000";
+          PORT = toString port;
         };
         volumes = [
           "/var/lib/supabase-storage:/var/lib/storage"

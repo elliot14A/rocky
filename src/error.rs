@@ -88,6 +88,17 @@ pub enum RockyError {
 
     #[snafu(display("Mesh error: {reason}"))]
     Mesh { reason: String },
+
+    #[snafu(display(
+        "Tailscale mesh probe timed out for host '{host}' at {target}:{port} after {timeout}s: {stderr}"
+    ))]
+    TailscaleProbeTimeout {
+        host: String,
+        target: String,
+        port: u16,
+        timeout: u64,
+        stderr: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,6 +274,21 @@ mod tests {
         assert_eq!(
             err.to_string(),
             "Invalid key-value syntax on line 4 in secret content: 'foo bar'"
+        );
+    }
+
+    #[test]
+    fn test_tailscale_probe_timeout_display() {
+        let err = RockyError::TailscaleProbeTimeout {
+            host: "edge".to_string(),
+            target: "192.168.1.10".to_string(),
+            port: 22,
+            timeout: 60,
+            stderr: "Connection refused".to_string(),
+        };
+        assert_eq!(
+            err.to_string(),
+            "Tailscale mesh probe timed out for host 'edge' at 192.168.1.10:22 after 60s: Connection refused"
         );
     }
 }

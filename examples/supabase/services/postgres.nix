@@ -1,17 +1,21 @@
 {
   config,
   pkgs,
+  lib,
   environment,
   ...
 }:
 
 let
   secretsDir = ../environments + "/${environment}/secrets";
+  hasCreds = builtins.pathExists (secretsDir + "/postgres-creds.age");
 in
 {
-  age.secrets."postgres-creds" = {
-    file = secretsDir + "/postgres-creds.age";
-    mode = "0400";
+  age.secrets = lib.optionalAttrs hasCreds {
+    "postgres-creds" = {
+      file = secretsDir + "/postgres-creds.age";
+      mode = "0400";
+    };
   };
 
   services.postgresql = {
@@ -55,9 +59,8 @@ in
     wantedBy = [ "multi-user.target" ];
     after = [ "postgresql.service" ];
     requires = [ "postgresql.service" ];
-    restartTriggers = [
-      (builtins.hashFile "sha256" (secretsDir + "/postgres-creds.age"))
-    ];
+    restartTriggers =
+      if hasCreds then [ (builtins.hashFile "sha256" (secretsDir + "/postgres-creds.age")) ] else [ ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
@@ -70,16 +73,24 @@ in
         ${config.services.postgresql.package}/bin/psql -v ON_ERROR_STOP=1 -d postgres << 'EOF'
       CREATE SCHEMA IF NOT EXISTS storage AUTHORIZATION supabase_admin;
       GRANT anon, authenticated, service_role TO authenticator;
+      ALTER ROLE service_role BYPASSRLS;
+      ALTER ROLE supabase_admin BYPASSRLS;
       GRANT ALL ON SCHEMA public TO postgres, anon, authenticated, service_role, supabase_admin;
       GRANT ALL ON SCHEMA storage TO postgres, anon, authenticated, service_role, supabase_admin;
+      GRANT ALL ON ALL TABLES IN SCHEMA storage TO postgres, anon, authenticated, service_role, supabase_admin;
+      GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO postgres, anon, authenticated, service_role, supabase_admin;
+      GRANT ALL ON ALL ROUTINES IN SCHEMA storage TO postgres, anon, authenticated, service_role, supabase_admin;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
       ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+      ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT ALL ON TABLES TO postgres, anon, authenticated, service_role, supabase_admin;
+      ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT ALL ON SEQUENCES TO postgres, anon, authenticated, service_role, supabase_admin;
+      ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA storage GRANT ALL ON ROUTINES TO postgres, anon, authenticated, service_role, supabase_admin;
       EOF
 
-      if [ -f ${config.age.secrets."postgres-creds".path} ]; then
+      if [ -f ${config.age.secrets."postgres-creds".path or "/nonexistent"} ]; then
         set -a
-        source ${config.age.secrets."postgres-creds".path}
+        source ${config.age.secrets."postgres-creds".path or "/nonexistent"}
         set +a
 
         if [ -n "''${POSTGRES_PASSWORD:-}" ]; then

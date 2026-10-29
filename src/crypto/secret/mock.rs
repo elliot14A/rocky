@@ -5,7 +5,7 @@ use tap::prelude::*;
 use super::eval_secret_recipients;
 use crate::crypto::age;
 use crate::error::{Kind, Result};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix};
 
 pub async fn generate_mock_secrets(fleet_root: &Path) -> Result<Vec<PathBuf>> {

@@ -239,24 +239,36 @@ async fn deploy_hosts(
     identity: Option<&Path>,
     concurrency: Option<usize>,
 ) -> Result<()> {
-    let deploys = plan
-        .deploy
-        .iter()
-        .map(|item| HostDeploy {
+    let domain = crate::process::mesh::resolve_domain(fleet_root, &plan.environment)
+        .await
+        .unwrap_or_default();
+
+    let mut deploys = Vec::new();
+    for item in &plan.deploy {
+        let hostname = if item.address != item.host {
+            Some(item.address.clone())
+        } else {
+            let full_node_name = format!("{}-{}", plan.environment, item.host);
+            let resolved =
+                crate::process::ssh::resolve_target_address(&full_node_name, &domain).await;
+            if resolved != full_node_name && !resolved.is_empty() {
+                Some(resolved)
+            } else {
+                None
+            }
+        };
+
+        deploys.push(HostDeploy {
             name: item.host.clone(),
             flake_attr: Some(format!("{}-{}", plan.environment, item.host)),
-            hostname: if item.address == item.host {
-                None
-            } else {
-                Some(item.address.clone())
-            },
+            hostname,
             port: if item.port == 22 {
                 None
             } else {
                 Some(item.port)
             },
-        })
-        .collect::<Vec<_>>();
+        });
+    }
 
     ui::info(format!("Deploying {} host(s)...", deploys.len()));
     let results = deploy_fleet(&deploys, fleet_root, identity, concurrency.unwrap_or(4)).await;
@@ -348,6 +360,31 @@ async fn execute(args: UpArgs, fleet_root: &Path) -> Result<()> {
 
     if !plan.install.is_empty() {
         install_hosts(fleet_root, &env_dir, &plan, identity, args.concurrency).await?;
+
+        let domain = crate::process::mesh::resolve_domain(fleet_root, &plan.environment)
+            .await
+            .unwrap_or_default();
+
+        for item in &plan.install {
+            ui::info(format!(
+                "Verifying mesh connectivity for host '{}'...",
+                item.host
+            ));
+            crate::ssh::probe_tailscale_connectivity(
+                &plan.environment,
+                &item.host,
+                &domain,
+                &item.address,
+                item.port,
+                identity,
+                60,
+            )
+            .await?;
+            ui::success(format!(
+                "Host '{}' is connected to Tailscale mesh.",
+                item.host
+            ));
+        }
     }
 
     if !plan.deploy.is_empty() {

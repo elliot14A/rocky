@@ -1,14 +1,15 @@
 {
   config,
   pkgs,
+  lib,
   serviceHost,
   environment,
-  lib,
   ...
 }:
 
 let
   secretsDir = ../environments + "/${environment}/secrets";
+  hasRusticSecret = builtins.pathExists (secretsDir + "/rustic.age");
   storageEndpoint = "http://${serviceHost "storage"}:5000/storage/v1/s3";
   bucket = "backups";
   dumpDir = "/var/backup/supabase-postgres";
@@ -23,18 +24,20 @@ in
     }
   ];
 
-  age.secrets."rustic" = {
-    file = secretsDir + "/rustic.age";
+  age.secrets = lib.optionalAttrs hasRusticSecret {
+    "rustic" = {
+      file = secretsDir + "/rustic.age";
+    };
   };
 
   systemd.services.rustic-backup = {
     description = "Automated PostgreSQL backup to internal Supabase Storage S3 via rustic";
-    restartTriggers = [
-      (builtins.hashFile "sha256" (secretsDir + "/rustic.age"))
-    ];
+    restartTriggers =
+      if hasRusticSecret then [ (builtins.hashFile "sha256" (secretsDir + "/rustic.age")) ] else [ ];
     serviceConfig = {
       Type = "oneshot";
-      EnvironmentFile = [ config.age.secrets."rustic".path ];
+      EnvironmentFile =
+        if hasRusticSecret then [ config.age.secrets."rustic".path ] else [ ];
     };
     script = ''
       set -eu

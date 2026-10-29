@@ -3,6 +3,8 @@
   lib,
 }:
 let
+  nftablesLib = import ./nftables.nix { inherit lib; };
+
   resolveBasePort =
     service: basePort:
     if hostConfig.services.${service} ? basePort then
@@ -106,6 +108,11 @@ in
       let
         port = if actualBasePort != null then actualBasePort + i else null;
         userContainer = mkContainer { inherit index port name; };
+        hasCustomNetwork = builtins.any (opt: lib.hasPrefix "--network" opt) (userContainer.extraOptions or [ ]);
+        defaultNetworkOption = if hasCustomNetwork then [ ] else [ "--network=host" ];
+        effectiveExtraOptions = defaultNetworkOption ++ (toList (userContainer.extraOptions or [ ]));
+        isHostNetwork = builtins.elem "--network=host" effectiveExtraOptions;
+        hasPorts = (!isHostNetwork) && actualBasePort != null && containerPort != null;
         portMapping =
           if bindHost != null then
             "${bindHost}:${toString port}:${toString containerPort}"
@@ -114,6 +121,9 @@ in
       in
       lib.nameValuePair name (
         userContainer
+        // {
+          extraOptions = effectiveExtraOptions;
+        }
         // (lib.optionalAttrs hasPorts {
           ports = [ portMapping ] ++ (toList (userContainer.ports or [ ]));
         })
@@ -137,4 +147,14 @@ in
         restartTriggers = toList secretHashes;
       }
     );
+
+  replicateServiceLoadBalancer =
+    {
+      service,
+      basePort ? null,
+      protocol ? "tcp",
+    }:
+    nftablesLib.mkServiceLoadBalancer {
+      inherit service hostConfig basePort protocol;
+    };
 }

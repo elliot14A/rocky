@@ -5,7 +5,7 @@ use snafu::OptionExt;
 
 use crate::error::{AlreadyExistsSnafu, Kind, NixParseSnafu, Result};
 use crate::nix::ast::{attr_to_name, parse_root_attr_set};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
 pub fn insert_secret_entry(
     secrets_nix_content: &str,

@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use snafu::ResultExt;
 
-use crate::error::{MeshSnafu, Result};
+use crate::error::{IoSnafu, MeshSnafu, Result};
 use crate::process;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -278,7 +279,7 @@ pub async fn check_workstation_tailscale(
 }
 
 pub async fn resolve_domain(fleet_root: &Path, env: &str) -> Result<String> {
-    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
+    crate::validate::validate_name(crate::error::Kind::Environment, env)?;
     let fleet_nix = fleet_root.join("environments").join(env).join("fleet.nix");
     let expr = format!(
         "let f = import (toString \"{}\"); in f.settings.domain or \"{}.rocky.internal\"",
@@ -299,7 +300,7 @@ pub async fn resolve_domain(fleet_root: &Path, env: &str) -> Result<String> {
 }
 
 pub async fn resolve_login_server(fleet_root: &Path, env: &str) -> Result<String> {
-    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
+    crate::validate::validate_name(crate::error::Kind::Environment, env)?;
     let fleet_nix = fleet_root.join("environments").join(env).join("fleet.nix");
     let expr = format!(
         "let f = import (toString \"{}\"); in f.settings.tailscaleLoginServer or null",
@@ -311,8 +312,6 @@ pub async fn resolve_login_server(fleet_root: &Path, env: &str) -> Result<String
 
     let server = if trimmed == "null" || trimmed.is_empty() {
         "https://controlplane.tailscale.com".to_string()
-    } else if trimmed.contains("10.0.2.2") {
-        trimmed.replace("10.0.2.2", "127.0.0.1")
     } else {
         trimmed.to_string()
     };
@@ -326,7 +325,7 @@ pub async fn resolve_authkey(
     explicit_key: Option<&str>,
     identity_path: Option<&Path>,
 ) -> Result<String> {
-    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
+    crate::validate::validate_name(crate::error::Kind::Environment, env)?;
     if let Some(key) = explicit_key {
         let trimmed = key.trim();
         if !trimmed.is_empty() {
@@ -388,7 +387,7 @@ pub async fn resolve_authkey(
 }
 
 pub async fn get_fleet_mesh_status(fleet_root: &Path, env: &str) -> Result<FleetMeshStatus> {
-    crate::utils::validate::validate_name(crate::error::Kind::Environment, env)?;
+    crate::validate::validate_name(crate::error::Kind::Environment, env)?;
     let fleet_nix = fleet_root.join("environments").join(env).join("fleet.nix");
     let content = crate::fs::read_file(&fleet_nix)?;
     let host_map = crate::nix::extract_host_services(&content, &fleet_nix)?;
@@ -449,8 +448,38 @@ pub async fn get_fleet_mesh_status(fleet_root: &Path, env: &str) -> Result<Fleet
 }
 
 pub async fn mesh_join(server: &str, authkey: &str, force_reauth: bool) -> Result<()> {
+    use std::io::Write;
+
+    let mut temp_key = tempfile::Builder::new()
+        .prefix("rocky-key-")
+        .suffix(".tmp")
+        .tempfile()
+        .context(IoSnafu {
+            path: std::env::temp_dir(),
+        })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temp_key
+            .as_file()
+            .set_permissions(std::fs::Permissions::from_mode(0o600))
+            .context(IoSnafu {
+                path: temp_key.path(),
+            })?;
+    }
+
+    temp_key
+        .write_all(authkey.as_bytes())
+        .context(IoSnafu {
+            path: temp_key.path(),
+        })?;
+    temp_key.flush().context(IoSnafu {
+        path: temp_key.path(),
+    })?;
+
     let login_arg = format!("--login-server={server}");
-    let authkey_arg = format!("--authkey={authkey}");
+    let authkey_arg = format!("--auth-key=file:{}", temp_key.path().display());
     let mut up_args = vec![
         "up",
         &login_arg,

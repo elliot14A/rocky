@@ -42,7 +42,7 @@ pub async fn rekey(secrets_dir: &Path, identity: Option<&Path>) -> Result<()> {
         }
     );
 
-    let abs_identity = crate::ssh::canonicalize_identity(identity)?;
+    let abs_identity = crate::fs::canonicalize_identity(identity)?;
 
     let args = build_rekey_args(abs_identity.as_deref());
 

@@ -3,7 +3,7 @@ use std::path::Path;
 use tap::prelude::*;
 
 use crate::error::{AlreadyExistsSnafu, Kind, Result};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix};
 
 fn generate_fleet_nix(name: &str) -> String {

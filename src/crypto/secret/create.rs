@@ -8,7 +8,7 @@ use crate::crypto::age;
 use crate::error::{AlreadyExistsSnafu, Kind, NotFoundSnafu, Result};
 use crate::fs;
 use crate::nix;
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
 pub async fn create_secret(
     env_dir: &Path,

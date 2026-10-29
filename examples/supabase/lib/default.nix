@@ -31,11 +31,18 @@ let
       [ ];
 
   # Load fleet declaration and environment variables for one environment
-  loadEnvironment = envName: {
-    name = envName;
-    fleet = import (environmentsDir + "/${envName}/fleet.nix");
-    envVars = import (environmentsDir + "/${envName}/env.nix");
-  };
+  loadEnvironment =
+    envName:
+    let
+      fleet = import (environmentsDir + "/${envName}/fleet.nix");
+    in
+    assert (fleet.settings or { }) ? domain
+      || throw "environment '${envName}': fleet.settings.domain must be set in fleet.nix";
+    {
+      name = envName;
+      inherit fleet;
+      envVars = import (environmentsDir + "/${envName}/env.nix");
+    };
 
   environments = map loadEnvironment environmentNames;
 
@@ -90,6 +97,7 @@ let
           replicateService = helpers.replicateService;
           replicateContainers = helpers.replicateContainers;
           containerRestartTriggers = helpers.containerRestartTriggers;
+          replicateServiceLoadBalancer = helpers.replicateServiceLoadBalancer;
         };
         modules = [
           inputs.agenix.nixosModules.default

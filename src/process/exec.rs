@@ -47,17 +47,18 @@ where
                 sanitize_display_args(&args_vec).join(" ")
             )
         };
+        let sanitized_display_cmd = sanitize_sensitive_string(&display_cmd);
 
         return match output.status.code() {
             Some(status) => CommandExecutionSnafu {
-                command: display_cmd,
+                command: sanitized_display_cmd,
                 status,
                 stderr: sanitized_stderr,
                 log_path: None,
             }
             .fail(),
             None => CommandSignaledSnafu {
-                command: display_cmd,
+                command: sanitized_display_cmd,
             }
             .fail(),
         };
@@ -68,12 +69,12 @@ where
 
 fn sanitize_sensitive_string(raw: &str) -> String {
     let mut sanitized = raw.to_string();
-    for prefix in &["tskey-auth-", "hskey-auth-"] {
+    for prefix in &["tskey-auth-", "hskey-auth-", "tskey-", "hskey-"] {
         let mut search_from = 0;
         while let Some(rel_start) = sanitized[search_from..].find(prefix) {
             let start = search_from + rel_start;
             let rel_end = sanitized[start..]
-                .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ',')
+                .find(|c: char| c.is_whitespace() || c == '\'' || c == '"' || c == ',' || c == '=')
                 .unwrap_or(sanitized[start..].len());
             let end = start + rel_end;
             let replacement = "[AUTHKEY-REDACTED]";
@@ -95,7 +96,7 @@ fn sanitize_display_args(args: &[std::ffi::OsString]) -> Vec<String> {
             continue;
         }
 
-        if s == "--authkey" || s == "-authkey" {
+        if s == "--authkey" || s == "-authkey" || s == "--auth-key" || s == "-auth-key" {
             out.push(s.to_string());
             redact_next = true;
             continue;
@@ -103,7 +104,7 @@ fn sanitize_display_args(args: &[std::ffi::OsString]) -> Vec<String> {
 
         if let Some((k, _)) = s.split_once('=') {
             let k_lower = k.to_ascii_lowercase();
-            if k_lower.contains("authkey")
+            if k_lower.contains("auth")
                 || k_lower.contains("password")
                 || k_lower.contains("token")
                 || k_lower.contains("secret")
@@ -155,6 +156,26 @@ mod tests {
         assert_eq!(
             sanitized_mult,
             "first: [AUTHKEY-REDACTED], second: [AUTHKEY-REDACTED], done"
+        );
+    }
+
+    #[test]
+    fn test_sanitize_display_args_redacts_auth_key_variations() {
+        let args = vec![
+            std::ffi::OsString::from("tailscale"),
+            std::ffi::OsString::from("up"),
+            std::ffi::OsString::from("--auth-key=tskey-auth-secret"),
+            std::ffi::OsString::from("--login-server=https://example.com"),
+        ];
+        let sanitized = sanitize_display_args(&args);
+        assert_eq!(
+            sanitized,
+            vec![
+                "tailscale",
+                "up",
+                "--auth-key=[REDACTED]",
+                "--login-server=https://example.com"
+            ]
         );
     }
 }

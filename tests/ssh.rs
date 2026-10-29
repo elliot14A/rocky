@@ -167,7 +167,6 @@ fn test_ssh_build_args_formatting() {
             "-o",
             "StrictHostKeyChecking=accept-new",
             "rocky@100.64.0.2",
-            "--",
             "-p",
             "2222",
             "uptime"

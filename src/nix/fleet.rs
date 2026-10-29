@@ -10,7 +10,7 @@ use crate::error::{
     AlreadyExistsSnafu, AmbiguousEnvironmentSnafu, IoSnafu, Kind, NixParseSnafu, NotFoundSnafu,
     Result,
 };
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
 async fn verify_fleet(dir: &Path) -> Result<PathBuf> {
     let flake_path = dir.join("flake.nix");

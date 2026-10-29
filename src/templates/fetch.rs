@@ -5,7 +5,7 @@ use tempfile::tempdir;
 
 use super::REPO;
 use crate::error::{IoSnafu, Kind, NotFoundSnafu, Result, TargetNotEmptySnafu};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix, process};
 
 async fn fetch_git_path(
@@ -173,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_is_valid_name_rules() {
-        use crate::utils::is_valid_name;
+        use crate::is_valid_name;
         assert!(is_valid_name("base"));
         assert!(is_valid_name("my-template_1"));
         assert!(!is_valid_name(""));

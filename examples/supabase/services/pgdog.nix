@@ -8,6 +8,7 @@
 
 let
   secretsDir = ../environments + "/${environment}/secrets";
+  hasUsers = builtins.pathExists (secretsDir + "/pgdog-users.age");
 
   configFile = pkgs.writeText "pgdog.toml" ''
     [general]
@@ -30,9 +31,11 @@ in
     }
   ];
 
-  age.secrets."pgdog-users" = {
-    file = secretsDir + "/pgdog-users.age";
-    mode = "0400";
+  age.secrets = lib.optionalAttrs hasUsers {
+    "pgdog-users" = {
+      file = secretsDir + "/pgdog-users.age";
+      mode = "0400";
+    };
   };
 
   systemd.services.pgdog = {
@@ -43,11 +46,10 @@ in
       "postgresql.service"
     ];
     requires = [ "postgresql.service" ];
-    restartTriggers = [
-      (builtins.hashFile "sha256" (secretsDir + "/pgdog-users.age"))
-    ];
+    restartTriggers =
+      if hasUsers then [ (builtins.hashFile "sha256" (secretsDir + "/pgdog-users.age")) ] else [ ];
     serviceConfig = {
-      ExecStart = "${pkgs.pgdog}/bin/pgdog --config ${configFile} --users ${config.age.secrets."pgdog-users".path} run";
+      ExecStart = "${pkgs.pgdog}/bin/pgdog --config ${configFile} --users ${config.age.secrets."pgdog-users".path or "/dev/null"} run";
       Restart = "on-failure";
     };
   };

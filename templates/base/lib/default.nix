@@ -90,6 +90,7 @@ let
           replicateService = helpers.replicateService;
           replicateContainers = helpers.replicateContainers;
           containerRestartTriggers = helpers.containerRestartTriggers;
+          replicateServiceLoadBalancer = helpers.replicateServiceLoadBalancer;
         };
         modules = [
           inputs.agenix.nixosModules.default

@@ -4,8 +4,7 @@
 }:
 
 let
-  acmeEmail =
-    fleet.settings.acmeEmail or (throw "fleet settings.acmeEmail must be set for the caddy service");
+  acmeEmail = fleet.settings.acmeEmail or null;
 in
 {
   networking.firewall.allowedTCPPorts = [

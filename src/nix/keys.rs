@@ -6,7 +6,7 @@ use snafu::OptionExt;
 use tap::prelude::*;
 
 use crate::error::{Kind, NixParseSnafu, Result};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 
 use super::ast::{attr_to_name, parse_root_attr_set, unwrap_attr_set};
 

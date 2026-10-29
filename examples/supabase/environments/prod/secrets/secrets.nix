@@ -25,6 +25,7 @@ in
     "postgrest"
     "storage"
     "gotrue"
+    "meta"
   ];
   "pgdog-users.age".publicKeys = recipientsFor [ "pgdog" ];
   "rustic.age".publicKeys = recipientsFor [ "rustic" ];

@@ -4,7 +4,7 @@ use tap::prelude::*;
 
 use crate::error::{AlreadyExistsSnafu, Kind, NotFoundSnafu, Result};
 use crate::templates::{fetch_partitions, fetch_provider};
-use crate::utils::validate::validate_name;
+use crate::validate::validate_name;
 use crate::{fs, nix};
 
 fn generate_default_nix(env: &str, name: &str) -> String {

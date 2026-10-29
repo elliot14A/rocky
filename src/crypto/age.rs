@@ -117,24 +117,9 @@ pub async fn encrypt(plaintext: &[u8], recipients: &[String]) -> Result<Vec<u8>>
 }
 
 pub async fn decrypt(ciphertext: &[u8], identity_path: Option<&Path>) -> Result<Vec<u8>> {
-    let Some(path) = crate::ssh::canonicalize_identity(identity_path)? else {
+    let Some(path) = crate::fs::canonicalize_identity(identity_path)? else {
         return MissingIdentitySnafu.fail();
     };
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Ok(meta) = path.metadata() {
-            let mode = meta.permissions().mode();
-            if mode & 0o077 != 0 {
-                crate::ui::warn(format!(
-                    "Identity file '{}' permissions are too open (0{:o}); expected 0600",
-                    path.display(),
-                    mode & 0o777
-                ));
-            }
-        }
-    }
 
     let args = vec!["-d".to_string(), "-i".to_string(), path.display().to_string()];
 
@@ -193,6 +178,11 @@ mod tests {
         let output = std::process::Command::new("age-keygen").output().unwrap();
         assert!(output.status.success());
         std::fs::write(&id_file, &output.stdout).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&id_file, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
 
         let pub_output = std::process::Command::new("age-keygen")
             .arg("-y")
@@ -212,6 +202,28 @@ mod tests {
 
         let decrypted = decrypt(&ciphertext, Some(&id_file)).await.unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[tokio::test]
+    async fn test_decrypt_rejects_insecure_permissions() {
+        let dir = tempfile::tempdir().unwrap();
+        let id_file = dir.path().join("id_age_insecure");
+        let output = std::process::Command::new("age-keygen").output().unwrap();
+        assert!(output.status.success());
+        std::fs::write(&id_file, &output.stdout).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&id_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+            let res = decrypt(b"dummy", Some(&id_file)).await;
+            assert!(res.is_err());
+            match res.unwrap_err() {
+                RockyError::InsecurePath { path, .. } => {
+                    assert_eq!(path, id_file);
+                }
+                other => panic!("expected InsecurePath, got: {:?}", other),
+            }
+        }
     }
 
     #[tokio::test]

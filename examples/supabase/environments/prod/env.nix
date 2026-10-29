@@ -19,4 +19,10 @@
     DEFAULT_ORGANIZATION_NAME = "Default Organization";
     DEFAULT_PROJECT_NAME = "Default Project";
   };
+
+  meta = {
+    PG_META_DB_PORT = "5432";
+    PG_META_DB_NAME = "postgres";
+    PG_META_DB_USER = "supabase_admin";
+  };
 }
